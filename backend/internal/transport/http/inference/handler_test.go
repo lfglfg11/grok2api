@@ -463,7 +463,7 @@ func TestImageGenerationEndpointValidatesXAIContractBeforeRouting(t *testing.T) 
 	}
 
 	recorder := httptest.NewRecorder()
-	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/image", strings.NewReader(`{"model":"grok-imagine-video","prompt":"test"}`)))
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/image", strings.NewReader(`{}`)))
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("singular image endpoint status = %d", recorder.Code)
 	}
