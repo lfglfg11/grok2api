@@ -117,6 +117,15 @@ func ResolveMedia(upstreamModel string, capability modeldomain.Capability) bool 
 	return false
 }
 
+func IsMediaModel(upstreamModel string) bool {
+	for _, spec := range mediaCatalog {
+		if spec.UpstreamModel == upstreamModel {
+			return true
+		}
+	}
+	return false
+}
+
 func allModels() []string {
 	values := make([]string, 0, len(catalog)+len(mediaCatalog))
 	for _, spec := range catalog {

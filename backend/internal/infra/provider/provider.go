@@ -414,6 +414,13 @@ type ImageAssetStore interface {
 	PublicImageURL(id string) string
 }
 
+// ConsoleMediaAssetStore archives Console-generated images and videos as public local resources.
+type ConsoleMediaAssetStore interface {
+	ImageAssetStore
+	SaveVideo(ctx context.Context, jobID, contentType string, body io.Reader) (media.Asset, error)
+	PublicVideoURL(id string) string
+}
+
 type VideoAdapter interface {
 	Adapter
 	GenerateVideo(ctx context.Context, request VideoRequest) (VideoResult, error)

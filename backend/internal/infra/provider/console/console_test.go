@@ -1109,6 +1109,128 @@ func TestDPoPSessionCacheUsesBoundedLRUEviction(t *testing.T) {
 	}
 }
 
+func TestConsoleMediaChatInputUsesLatestUserMessage(t *testing.T) {
+	body := []byte(`{
+		"model":"grok-imagine-image",
+		"messages":[
+			{"role":"user","content":"old prompt"},
+			{"role":"assistant","content":"old answer"},
+			{"role":"user","content":[
+				{"type":"text","text":"restyle this"},
+				{"type":"image_url","image_url":{"url":"https://example.com/input.png"}}
+			]}
+		],
+		"image_config":{"n":2,"response_format":"b64_json","aspect_ratio":"3:2","resolution":"2k"}
+	}`)
+	input, prompt, images, err := parseConsoleMediaChatInput(body, "grok-imagine-image")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prompt != "restyle this" || len(images) != 1 || images[0] != "https://example.com/input.png" {
+		t.Fatalf("prompt=%q images=%#v", prompt, images)
+	}
+	count, format, _, ratio, resolution := consoleImageChatOptions(input)
+	if count != 2 || format != "b64_json" || ratio != "3:2" || resolution != "2k" {
+		t.Fatalf("image options = %d %q %q %q", count, format, ratio, resolution)
+	}
+}
+
+func TestConsoleMediaChatCompletionGeneratesAndEditsImages(t *testing.T) {
+	imageBytes := []byte("\x89PNG\r\n\x1a\nchat-image")
+	for _, test := range []struct {
+		name      string
+		model     string
+		body      string
+		wantPath  string
+		wantImage bool
+	}{
+		{name: "generation", model: "grok-imagine-image", body: `{"model":"grok-imagine-image","messages":[{"role":"user","content":"draw a fox"}]}`, wantPath: "/v1/images/generations"},
+		{name: "quality edit", model: "grok-imagine-image-quality", body: `{"model":"grok-imagine-image-quality","messages":[{"role":"user","content":[{"type":"text","text":"make it cinematic"},{"type":"image_url","image_url":{"url":"https://example.com/input.png"}}]}]}`, wantPath: "/v1/images/edits", wantImage: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var server *httptest.Server
+			server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if serveTestDPoPToken(t, writer, request) {
+					return
+				}
+				if request.URL.Path == "/generated.png" {
+					writer.Header().Set("Content-Type", "image/png")
+					_, _ = writer.Write(imageBytes)
+					return
+				}
+				if request.URL.Path != test.wantPath {
+					http.NotFound(writer, request)
+					return
+				}
+				verifyTestDPoPProof(t, request)
+				var payload map[string]any
+				if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+					t.Error(err)
+				}
+				if payload["model"] != test.model {
+					t.Errorf("model = %#v", payload["model"])
+				}
+				if test.wantImage && payload["image"] == nil {
+					t.Errorf("edit payload = %#v", payload)
+				}
+				_ = json.NewEncoder(writer).Encode(map[string]any{"data": []any{map[string]any{"url": server.URL + "/generated.png"}}})
+			}))
+			t.Cleanup(server.Close)
+			store := &consoleImageAssetStoreStub{}
+			adapter, credential := newConsoleTestAdapterWithAssets(t, server.URL, store)
+			response, err := adapter.ForwardResponse(context.Background(), provider.ResponseResourceRequest{
+				Credential: credential, Method: http.MethodPost, Path: "/responses", Model: test.model,
+				Operation: conversation.OperationChat, NormalizeBody: true, Body: []byte(test.body),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			data, err := io.ReadAll(response.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var result struct {
+				Object  string `json:"object"`
+				Choices []struct {
+					Message struct {
+						Content string `json:"content"`
+					} `json:"message"`
+				} `json:"choices"`
+			}
+			if json.Unmarshal(data, &result) != nil || result.Object != "chat.completion" || len(result.Choices) != 1 {
+				t.Fatalf("chat response = %s", data)
+			}
+			if result.Choices[0].Message.Content != "![image](https://local.example/v1/media/images/console-1)" {
+				t.Fatalf("content = %q", result.Choices[0].Message.Content)
+			}
+		})
+	}
+}
+
+func TestConsoleVideoChatOptionsAndStreamingResponse(t *testing.T) {
+	var input consoleMediaChatInput
+	if err := json.Unmarshal([]byte(`{"stream":true,"video_config":{"duration":"4","size":"720x1280","resolution":"480p"}}`), &input); err != nil {
+		t.Fatal(err)
+	}
+	duration, ratio, resolution, err := consoleVideoChatOptions(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if duration != 4 || ratio != "9:16" || resolution != "480p" {
+		t.Fatalf("video options = %d %q %q", duration, ratio, resolution)
+	}
+	response := consoleChatCompletionResponse("grok-imagine-video", "https://local.example/v1/media/videos/vid_1", true, duration)
+	defer response.Body.Close()
+	data, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Header.Get("Content-Type") != "text/event-stream" || !bytes.Contains(data, []byte("chat.completion.chunk")) || !bytes.Contains(data, []byte("data: [DONE]")) {
+		t.Fatalf("stream response headers=%#v body=%s", response.Header, data)
+	}
+}
+
 func TestConsoleImageGenerationForwardsStandardDPoPRequest(t *testing.T) {
 	imageBytes := []byte("\x89PNG\r\n\x1a\nconsole-image")
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -1372,7 +1494,7 @@ func newConsoleTestAdapter(t *testing.T, baseURL string) (*Adapter, account.Cred
 	return newConsoleTestAdapterWithAssets(t, baseURL, nil)
 }
 
-func newConsoleTestAdapterWithAssets(t *testing.T, baseURL string, assets provider.ImageAssetStore) (*Adapter, account.Credential) {
+func newConsoleTestAdapterWithAssets(t *testing.T, baseURL string, assets provider.ConsoleMediaAssetStore) (*Adapter, account.Credential) {
 	t.Helper()
 	cipher, err := security.NewCipher(base64.StdEncoding.EncodeToString(make([]byte, 32)))
 	if err != nil {
@@ -1401,6 +1523,21 @@ func (s *consoleImageAssetStoreStub) SaveImage(_ context.Context, data []byte) (
 
 func (*consoleImageAssetStoreStub) PublicImageURL(id string) string {
 	return "https://local.example/v1/media/images/" + id
+}
+
+func (s *consoleImageAssetStoreStub) SaveVideo(_ context.Context, _ string, contentType string, body io.Reader) (mediadomain.Asset, error) {
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return mediadomain.Asset{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.saved = append(s.saved, bytes.Clone(data))
+	return mediadomain.Asset{ID: fmt.Sprintf("video-%d", len(s.saved)), MIMEType: contentType}, nil
+}
+
+func (*consoleImageAssetStoreStub) PublicVideoURL(id string) string {
+	return "https://local.example/v1/media/videos/" + id
 }
 
 func (s *consoleImageAssetStoreStub) Saved() [][]byte {

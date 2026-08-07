@@ -35,11 +35,11 @@ type Adapter struct {
 	cfg    Config
 	egress *infraegress.Manager
 	cipher *security.Cipher
-	assets provider.ImageAssetStore
+	assets provider.ConsoleMediaAssetStore
 	dpop   *dpopSessionManager
 }
 
-func NewAdapter(cfg Config, egress *infraegress.Manager, cipher *security.Cipher, assets provider.ImageAssetStore) *Adapter {
+func NewAdapter(cfg Config, egress *infraegress.Manager, cipher *security.Cipher, assets provider.ConsoleMediaAssetStore) *Adapter {
 	cfg = normalizedConfig(cfg)
 	return &Adapter{cfg: cfg, egress: egress, cipher: cipher, assets: assets, dpop: newDPoPSessionManager()}
 }
@@ -100,6 +100,9 @@ func (a *Adapter) MarshalCredentials(values []provider.CredentialSeed) ([]byte, 
 func (a *Adapter) ForwardResponse(ctx context.Context, request provider.ResponseResourceRequest) (*provider.Response, error) {
 	if request.Method != http.MethodPost || request.Path != "/responses" {
 		return jsonProviderResponse(http.StatusBadRequest, map[string]any{"error": map[string]any{"type": "invalid_request_error", "message": "Grok Console 仅支持 POST /responses"}}), nil
+	}
+	if request.Operation == conversation.OperationChat && IsMediaModel(request.Model) {
+		return a.forwardMediaChatCompletion(ctx, request)
 	}
 	spec, ok := Resolve(request.Model)
 	if !ok {
