@@ -104,7 +104,7 @@ func TestVideoGenerationUsesOfficialXAIEndpointsAndFields(t *testing.T) {
 	}
 
 	unsupportedRecorder := httptest.NewRecorder()
-	compatibleRequest := httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(`{}`))
+	compatibleRequest := httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(`{"model":"grok-imagine-video","prompt":"test"}`))
 	compatibleRequest.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(unsupportedRecorder, compatibleRequest)
 	if unsupportedRecorder.Code != http.StatusUnauthorized {
@@ -463,7 +463,7 @@ func TestImageGenerationEndpointValidatesXAIContractBeforeRouting(t *testing.T) 
 	}
 
 	recorder := httptest.NewRecorder()
-	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/image", strings.NewReader(`{}`)))
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/image", strings.NewReader(`{"model":"grok-imagine-video","prompt":"test"}`)))
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("singular image endpoint status = %d", recorder.Code)
 	}
