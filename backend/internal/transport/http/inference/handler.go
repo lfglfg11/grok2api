@@ -359,7 +359,7 @@ func isConsoleVideoChatModel(value string) bool {
 func (h *Handler) createConsoleVideoChat(c *gin.Context, body []byte, request chatCompletionRequest, clientKey clientkeydomain.Key, requestID string) bool {
 	var input chatVideoCompatibilityRequest
 	if err := json.Unmarshal(body, &input); err != nil || len(input.Messages) == 0 {
-		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "grok-imagine-video Chat Completions ? messages ??")
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "grok-imagine-video Chat Completions requires valid messages")
 		return true
 	}
 	prompt, references, err := extractChatVideoPrompt(input.Messages)
@@ -399,7 +399,7 @@ func (h *Handler) createConsoleVideoChat(c *gin.Context, body []byte, request ch
 		aspectRatio = "16:9"
 	}
 	if !validVideoAspectRatio(aspectRatio) {
-		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "aspect_ratio ??")
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "aspect_ratio is invalid")
 		return true
 	}
 	resolution = strings.ToLower(strings.TrimSpace(resolution))
@@ -407,11 +407,11 @@ func (h *Handler) createConsoleVideoChat(c *gin.Context, body []byte, request ch
 		resolution = "720p"
 	}
 	if resolution != "480p" && resolution != "720p" {
-		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "grok-imagine-video ??? 480p ? 720p")
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "grok-imagine-video only supports 480p or 720p")
 		return true
 	}
 	if prompt == "" && len(references) == 0 {
-		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "????????? prompt?????????? prompt")
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "text-to-video requires a prompt; image-to-video may omit it")
 		return true
 	}
 	job, err := h.gateway.CreateVideo(c.Request.Context(), gateway.VideoInput{RequestID: requestID, ClientKey: clientKey, PublicModel: request.Model, Compatibility: true, Prompt: prompt, Duration: duration, AspectRatio: aspectRatio, Resolution: resolution, ReferenceURLs: references})
@@ -421,7 +421,7 @@ func (h *Handler) createConsoleVideoChat(c *gin.Context, body []byte, request ch
 	}
 	statusURL := h.publicURL("/v1/videos/" + url.PathEscape(job.ID))
 	contentURL := h.publicURL("/v1/videos/" + url.PathEscape(job.ID) + "/content")
-	writeConsoleVideoChatResult(c, request.Model, "?????????????"+statusURL+"\n??????????"+contentURL, request.Stream)
+	writeConsoleVideoChatResult(c, request.Model, "Video task created. Status: "+statusURL+"\nContent when completed: "+contentURL, request.Stream)
 	return true
 }
 
@@ -439,7 +439,7 @@ func extractChatVideoPrompt(messages []chatVideoMessage) (string, []string, erro
 		}
 		var parts []map[string]json.RawMessage
 		if err := json.Unmarshal(message.Content, &parts); err != nil {
-			return "", nil, errors.New("user ?? content ???????????")
+			return "", nil, errors.New("user ?? content Content when completed: ?")
 		}
 		for _, part := range parts {
 			var kind string
