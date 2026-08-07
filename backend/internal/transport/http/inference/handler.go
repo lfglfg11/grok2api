@@ -167,6 +167,20 @@ type videoGenerationRequest struct {
 	StorageOptions  json.RawMessage        `json:"storage_options"`
 }
 
+type compatibleVideoRequest struct {
+	Model           string          `json:"model"`
+	Prompt          string          `json:"prompt"`
+	Seconds         json.RawMessage `json:"seconds"`
+	Duration        json.RawMessage `json:"duration"`
+	Size            string          `json:"size"`
+	Image           string          `json:"image"`
+	Images          []string        `json:"images"`
+	InputReference  string          `json:"input_reference"`
+	ReferenceImages []string        `json:"reference_images"`
+	AspectRatio     string          `json:"aspect_ratio"`
+	Resolution      string          `json:"resolution"`
+}
+
 type modelListItem struct {
 	ID         string                 `json:"id"`
 	Object     string                 `json:"object"`
@@ -698,6 +712,158 @@ func (h *Handler) generateVideo(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"request_id": job.ID})
 }
 
+func (h *Handler) createCompatibleVideo(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, h.maxBodyBytes)
+	if !isJSONRequest(c) {
+		writeOpenAIError(c, http.StatusUnsupportedMediaType, "invalid_request", "视频生成仅支持 application/json")
+		return
+	}
+	var request compatibleVideoRequest
+	if err := decodeSingleJSON(c.Request.Body, &request, true); err != nil {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "视频生成 JSON 请求无效: "+err.Error())
+		return
+	}
+	model := strings.TrimSpace(request.Model)
+	if model == "" {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "视频生成缺少有效 model")
+		return
+	}
+	durationRaw := request.Duration
+	if !hasJSONValue(durationRaw) {
+		durationRaw = request.Seconds
+	}
+	duration, err := parseVideoDuration(durationRaw)
+	if err != nil {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	aspectRatio := strings.TrimSpace(request.AspectRatio)
+	if aspectRatio == "" && strings.TrimSpace(request.Size) != "" {
+		aspectRatio, err = aspectRatioFromVideoSize(request.Size)
+		if err != nil {
+			writeOpenAIError(c, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+	}
+	if aspectRatio == "" {
+		aspectRatio = "16:9"
+	}
+	if !validVideoAspectRatio(aspectRatio) {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "aspect_ratio 无效")
+		return
+	}
+	resolution := strings.ToLower(strings.TrimSpace(request.Resolution))
+	if resolution == "" {
+		resolution = resolutionFromVideoSize(request.Size)
+	}
+	if resolution == "" {
+		resolution = "720p"
+	}
+	if resolution != "480p" && resolution != "720p" && resolution != "1080p" {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "resolution 必须是 480p、720p 或 1080p")
+		return
+	}
+	references, err := normalizeCompatibleVideoImages(request)
+	if err != nil {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if strings.TrimSpace(request.Prompt) == "" && len(references) == 0 {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "文本生视频必须提供 prompt；图片生视频可以省略 prompt")
+		return
+	}
+	clientKey, requestID, ok := requestIdentity(c)
+	if !ok {
+		return
+	}
+	job, err := h.gateway.CreateVideo(c.Request.Context(), gateway.VideoInput{RequestID: requestID, ClientKey: clientKey, PublicModel: model, Compatibility: true, Prompt: strings.TrimSpace(request.Prompt), Duration: duration, AspectRatio: aspectRatio, Resolution: resolution, ReferenceURLs: references})
+	if err != nil {
+		writeGatewayError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, compatibleVideoResponse(job, h.videoContentURL(job.ID)))
+}
+
+func normalizeCompatibleVideoImages(request compatibleVideoRequest) ([]string, error) {
+	for _, value := range append(append([]string{}, request.Images...), request.ReferenceImages...) {
+		if strings.TrimSpace(value) == "" {
+			return nil, errors.New("图片引用必须是非空字符串")
+		}
+	}
+	var references []string
+	switch {
+	case len(request.ReferenceImages) > 0:
+		references = append(references, request.ReferenceImages...)
+	case len(request.Images) > 0:
+		references = append(references, request.Images...)
+	case strings.TrimSpace(request.InputReference) != "":
+		references = []string{request.InputReference}
+	}
+	if strings.TrimSpace(request.Image) != "" {
+		references = append([]string{strings.TrimSpace(request.Image)}, references...)
+	}
+	if len(references) > mediadomain.MaxInputImages {
+		return nil, fmt.Errorf("参考图片不能超过 %d 张", mediadomain.MaxInputImages)
+	}
+	for index := range references {
+		references[index] = strings.TrimSpace(references[index])
+		if references[index] == "" {
+			return nil, errors.New("图片引用必须是非空字符串")
+		}
+	}
+	return references, nil
+}
+
+func aspectRatioFromVideoSize(value string) (string, error) {
+	parts := strings.Split(strings.ToLower(strings.TrimSpace(value)), "x")
+	if len(parts) != 2 {
+		return "", errors.New("size 必须是 WIDTHxHEIGHT")
+	}
+	width, err1 := strconv.Atoi(parts[0])
+	height, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil || width < 1 || height < 1 || width > 16384 || height > 16384 {
+		return "", errors.New("size 必须包含合理的正整数宽高")
+	}
+	divisor := gcd(width, height)
+	return strconv.Itoa(width/divisor) + ":" + strconv.Itoa(height/divisor), nil
+}
+
+func resolutionFromVideoSize(value string) string {
+	parts := strings.Split(strings.ToLower(strings.TrimSpace(value)), "x")
+	if len(parts) != 2 {
+		return ""
+	}
+	width, err1 := strconv.Atoi(parts[0])
+	height, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil || width < 1 || height < 1 {
+		return ""
+	}
+	short := width
+	if height < short {
+		short = height
+	}
+	best, bestDistance := 480, abs(short-480)
+	for _, candidate := range []int{720, 1080} {
+		distance := abs(short - candidate)
+		if distance < bestDistance {
+			best, bestDistance = candidate, distance
+		}
+	}
+	return strconv.Itoa(best) + "p"
+}
+func gcd(left, right int) int {
+	for right != 0 {
+		left, right = right, left%right
+	}
+	return left
+}
+func abs(value int) int {
+	if value < 0 {
+		return -value
+	}
+	return value
+}
+
 func (h *Handler) getVideo(c *gin.Context) {
 	clientKey, _, ok := requestIdentity(c)
 	if !ok {
@@ -706,6 +872,10 @@ func (h *Handler) getVideo(c *gin.Context) {
 	job, err := h.gateway.GetVideo(c.Request.Context(), strings.TrimSpace(c.Param("requestId")), clientKey)
 	if err != nil {
 		writeGatewayError(c, err)
+		return
+	}
+	if strings.HasPrefix(job.ID, "video_sora_") {
+		c.JSON(http.StatusOK, compatibleVideoResponse(job, h.videoContentURL(job.ID)))
 		return
 	}
 	c.JSON(http.StatusOK, videoGenerationResponse(job, h.videoContentURL(job.ID)))
@@ -734,6 +904,15 @@ func (h *Handler) getVideoContent(c *gin.Context) {
 		return
 	}
 	defer func() { _ = body.Close() }()
+	if strings.TrimSpace(c.GetHeader("Range")) != "" {
+		if seeker, ok := body.(io.ReadSeeker); ok {
+			c.Header("Content-Type", contentType)
+			c.Header("Content-Disposition", "inline")
+			c.Header("Cache-Control", "private, no-store")
+			http.ServeContent(c.Writer, c.Request, "video.mp4", time.Time{}, seeker)
+			return
+		}
+	}
 	writeVideoContent(c, body, contentType, size)
 }
 
@@ -846,6 +1025,26 @@ func videoGenerationResponse(job mediadomain.Job, contentURLs ...string) gin.H {
 	default:
 		return gin.H{"status": "pending", "model": job.Model, "progress": min(99, max(0, job.Progress))}
 	}
+}
+
+func compatibleVideoResponse(job mediadomain.Job, contentURL string) gin.H {
+	response := gin.H{"id": job.ID, "task_id": job.ID, "object": "video", "model": job.Model, "status": "queued", "progress": max(0, min(99, job.Progress)), "created_at": job.CreatedAt.Unix(), "seconds": strconv.Itoa(job.Seconds), "size": job.Size}
+	switch job.Status {
+	case mediadomain.StatusInProgress:
+		response["status"] = "in_progress"
+	case mediadomain.StatusCompleted:
+		response["status"] = "completed"
+		response["progress"] = 100
+		response["metadata"] = gin.H{"url": contentURL}
+		if job.CompletedAt != nil {
+			response["completed_at"] = job.CompletedAt.Unix()
+		}
+	case mediadomain.StatusFailed:
+		response["status"] = "failed"
+		response["progress"] = 0
+		response["error"] = gin.H{"code": "video_generation_failed", "message": job.ErrorMessage}
+	}
+	return response
 }
 
 func officialVideoErrorCode(value string) string {
@@ -1684,6 +1883,8 @@ func writeGatewayError(c *gin.Context, err error) {
 	case errors.Is(err, gateway.ErrResponseStateUnsupported), errors.Is(err, gateway.ErrConversationUnsupported):
 		status, code = http.StatusBadRequest, "unsupported_parameter"
 		message = err.Error()
+	case errors.Is(err, gateway.ErrVideoContentNotReady):
+		status, code, message = http.StatusConflict, "video_not_ready", "视频内容尚未可用"
 	case errors.Is(err, gateway.ErrVideoInputTooLarge), errors.Is(err, gateway.ErrVideoInputUnavailable):
 		status, code = http.StatusBadRequest, "invalid_request"
 		message = err.Error()

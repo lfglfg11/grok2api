@@ -44,6 +44,7 @@ var (
 	ErrConversationUnsupported    = errors.New("目标模型不支持当前对话协议")
 	ErrVideoInputTooLarge         = errors.New("视频参考图片编码后总输入超过 32 MiB")
 	ErrVideoInputUnavailable      = errors.New("视频临时输入不存在或已过期")
+	ErrVideoContentNotReady       = errors.New("视频内容尚未可用")
 	ErrLedgerUnavailable          = errors.New("计费账本暂不可用")
 )
 

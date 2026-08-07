@@ -1027,3 +1027,51 @@ func TestSelectionErrorResponseDistinguishesCoolingAndSaturation(t *testing.T) {
 		})
 	}
 }
+
+func TestCompatibleVideoNormalization(t *testing.T) {
+	for _, test := range []struct{ input, want string }{
+		{"1280x720", "16:9"}, {"720x1280", "9:16"}, {"1024x1024", "1:1"},
+	} {
+		got, err := aspectRatioFromVideoSize(test.input)
+		if err != nil || got != test.want {
+			t.Fatalf("size %q = %q, %v; want %q", test.input, got, err, test.want)
+		}
+	}
+	if got := resolutionFromVideoSize("1280x720"); got != "720p" {
+		t.Fatalf("resolution = %q", got)
+	}
+	if got := resolutionFromVideoSize("1920x1080"); got != "1080p" {
+		t.Fatalf("resolution = %q", got)
+	}
+}
+
+func TestCompatibleVideoImagesAndDuration(t *testing.T) {
+	request := compatibleVideoRequest{Images: []string{"one", "two"}}
+	references, err := normalizeCompatibleVideoImages(request)
+	if err != nil || len(references) != 2 || references[0] != "one" {
+		t.Fatalf("references = %#v, err=%v", references, err)
+	}
+	request = compatibleVideoRequest{Images: []string{"one"}, InputReference: "fallback"}
+	references, err = normalizeCompatibleVideoImages(request)
+	if err != nil || len(references) != 1 || references[0] != "one" {
+		t.Fatalf("image priority references = %#v, err=%v", references, err)
+	}
+	request = compatibleVideoRequest{InputReference: "fallback"}
+	references, err = normalizeCompatibleVideoImages(request)
+	if err != nil || len(references) != 1 || references[0] != "fallback" {
+		t.Fatalf("input reference = %#v, err=%v", references, err)
+	}
+	secondsValue, err := parseVideoDuration(json.RawMessage(`"8"`))
+	if err != nil || secondsValue != 8 {
+		t.Fatalf("seconds = %d, %v", secondsValue, err)
+	}
+}
+
+func TestCompatibleVideoResponseStatusMapping(t *testing.T) {
+	now := time.Unix(1786000000, 0).UTC()
+	job := mediadomain.Job{ID: "video_sora_test", Model: "grok-imagine-video", Seconds: 8, Size: "16:9", Status: mediadomain.StatusCompleted, Progress: 100, CreatedAt: now, CompletedAt: &now}
+	response := compatibleVideoResponse(job, "/v1/videos/video_sora_test/content")
+	if response["status"] != "completed" || response["progress"] != 100 {
+		t.Fatalf("response = %#v", response)
+	}
+}

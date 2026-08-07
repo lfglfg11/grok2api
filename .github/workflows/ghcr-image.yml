@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - video-image
     tags:
       - "v*.*.*"
   pull_request:
@@ -80,9 +81,6 @@ jobs:
           - arch: amd64
             platform: linux/amd64
             runner: ubuntu-24.04
-          - arch: arm64
-            platform: linux/arm64
-            runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
 
     steps:
@@ -117,9 +115,6 @@ jobs:
           - arch: amd64
             platform: linux/amd64
             runner: ubuntu-24.04
-          - arch: arm64
-            platform: linux/arm64
-            runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
 
     steps:
@@ -211,8 +206,7 @@ jobs:
           jq -cr '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON" | while read -r tag; do
             docker buildx imagetools create \
               -t "$tag" \
-              "${tag}-amd64" \
-              "${tag}-arm64"
+              "${tag}-amd64"
           done
 
       - name: Inspect image

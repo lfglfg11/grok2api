@@ -43,6 +43,7 @@ type VideoInput struct {
 	RequestID     string
 	ClientKey     clientkey.Key
 	PublicModel   string
+	Compatibility bool
 	Prompt        string
 	Duration      int
 	AspectRatio   string
@@ -91,8 +92,12 @@ func (s *Service) CreateVideo(ctx context.Context, input VideoInput) (media.Job,
 		return media.Job{}, err
 	}
 	now := time.Now().UTC()
+	jobID := "video_" + token
+	if input.Compatibility {
+		jobID = "video_sora_" + token
+	}
 	job := media.Job{
-		ID: "video_" + token, RequestID: input.RequestID,
+		ID: jobID, RequestID: input.RequestID,
 		ClientKeyID: input.ClientKey.ID, ClientKeyName: input.ClientKey.Name,
 		AccountID: accountID, AccountName: lease.Credential.Name,
 		Provider: string(route.Provider), Model: externalModel, ModelRouteID: route.ID, UpstreamModel: model.DisplayUpstreamModel(route.Provider, route.UpstreamModel), Prompt: input.Prompt,
@@ -135,7 +140,7 @@ func (s *Service) OpenVideoContent(ctx context.Context, id string, key clientkey
 		return nil, "", 0, err
 	}
 	if job.Status != media.StatusCompleted {
-		return nil, "", 0, fmt.Errorf("视频内容尚未可用")
+		return nil, "", 0, ErrVideoContentNotReady
 	}
 	// 本地资产优先：XAI ZDR 上传完成后不经公网回环下载。
 	if job.ResultAssetID != "" && s.mediaAssets != nil {
