@@ -109,6 +109,28 @@ type chatCompletionRequest struct {
 	PromptCacheKey string `json:"prompt_cache_key"`
 }
 
+type chatVideoMessage struct {
+	Role    string          `json:"role"`
+	Content json.RawMessage `json:"content"`
+}
+type chatVideoCompatibilityRequest struct {
+	Model       string             `json:"model"`
+	Messages    []chatVideoMessage `json:"messages"`
+	Stream      bool               `json:"stream"`
+	Duration    json.RawMessage    `json:"duration"`
+	Seconds     json.RawMessage    `json:"seconds"`
+	Size        string             `json:"size"`
+	AspectRatio string             `json:"aspect_ratio"`
+	Resolution  string             `json:"resolution"`
+	VideoConfig *struct {
+		Duration    json.RawMessage `json:"duration"`
+		Seconds     json.RawMessage `json:"seconds"`
+		Size        string          `json:"size"`
+		AspectRatio string          `json:"aspect_ratio"`
+		Resolution  string          `json:"resolution"`
+	} `json:"video_config"`
+}
+
 type messagesRequest struct {
 	Model          string          `json:"model"`
 	MaxTokens      *int            `json:"max_tokens"`
@@ -312,6 +334,9 @@ func (h *Handler) createChatCompletion(c *gin.Context) {
 	}
 	requestID, _ := c.Get(middleware.RequestIDKey)
 	requestIDValue, _ := requestID.(string)
+	if isConsoleVideoChatModel(request.Model) && h.createConsoleVideoChat(c, body, request, clientKey, requestIDValue) {
+		return
+	}
 	result, err := h.gateway.CreateChatCompletion(c.Request.Context(), gateway.Input{
 		RequestID: requestIDValue, ClientKey: clientKey, PublicModel: request.Model,
 		Body: body, Streaming: request.Stream, PromptCacheKey: request.PromptCacheKey,
@@ -324,6 +349,160 @@ func (h *Handler) createChatCompletion(c *gin.Context) {
 		return
 	}
 	h.writeResult(c, result, request.Stream, streamProtocolChat)
+}
+
+func isConsoleVideoChatModel(value string) bool {
+	value = strings.TrimPrefix(strings.TrimSpace(value), "Console/")
+	return strings.EqualFold(value, "grok-imagine-video")
+}
+
+func (h *Handler) createConsoleVideoChat(c *gin.Context, body []byte, request chatCompletionRequest, clientKey clientkeydomain.Key, requestID string) bool {
+	var input chatVideoCompatibilityRequest
+	if err := json.Unmarshal(body, &input); err != nil || len(input.Messages) == 0 {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "grok-imagine-video Chat Completions ? messages ??")
+		return true
+	}
+	prompt, references, err := extractChatVideoPrompt(input.Messages)
+	if err != nil {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", err.Error())
+		return true
+	}
+	durationRaw, aspectRatio, resolution := input.Duration, input.AspectRatio, input.Resolution
+	if len(bytes.TrimSpace(durationRaw)) == 0 {
+		durationRaw = input.Seconds
+	}
+	if input.VideoConfig != nil {
+		if len(bytes.TrimSpace(input.VideoConfig.Duration)) > 0 {
+			durationRaw = input.VideoConfig.Duration
+		} else if len(bytes.TrimSpace(input.VideoConfig.Seconds)) > 0 {
+			durationRaw = input.VideoConfig.Seconds
+		}
+		if strings.TrimSpace(input.VideoConfig.AspectRatio) != "" {
+			aspectRatio = input.VideoConfig.AspectRatio
+		}
+		if strings.TrimSpace(input.VideoConfig.Resolution) != "" {
+			resolution = input.VideoConfig.Resolution
+		}
+		if strings.TrimSpace(input.VideoConfig.Size) != "" && strings.TrimSpace(aspectRatio) == "" {
+			aspectRatio = input.VideoConfig.Size
+		}
+	}
+	duration, err := parseVideoDuration(durationRaw)
+	if err != nil {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", err.Error())
+		return true
+	}
+	if strings.Contains(aspectRatio, "x") {
+		aspectRatio = videoAspectRatioFromChatSize(aspectRatio)
+	}
+	if strings.TrimSpace(aspectRatio) == "" {
+		aspectRatio = "16:9"
+	}
+	if !validVideoAspectRatio(aspectRatio) {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "aspect_ratio ??")
+		return true
+	}
+	resolution = strings.ToLower(strings.TrimSpace(resolution))
+	if resolution == "" {
+		resolution = "720p"
+	}
+	if resolution != "480p" && resolution != "720p" {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "grok-imagine-video ??? 480p ? 720p")
+		return true
+	}
+	if prompt == "" && len(references) == 0 {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "????????? prompt?????????? prompt")
+		return true
+	}
+	job, err := h.gateway.CreateVideo(c.Request.Context(), gateway.VideoInput{RequestID: requestID, ClientKey: clientKey, PublicModel: request.Model, Compatibility: true, Prompt: prompt, Duration: duration, AspectRatio: aspectRatio, Resolution: resolution, ReferenceURLs: references})
+	if err != nil {
+		writeGatewayError(c, err)
+		return true
+	}
+	statusURL := h.publicURL("/v1/videos/" + url.PathEscape(job.ID))
+	contentURL := h.publicURL("/v1/videos/" + url.PathEscape(job.ID) + "/content")
+	writeConsoleVideoChatResult(c, request.Model, "?????????????"+statusURL+"\n??????????"+contentURL, request.Stream)
+	return true
+}
+
+func extractChatVideoPrompt(messages []chatVideoMessage) (string, []string, error) {
+	prompt := ""
+	var references []string
+	for _, message := range messages {
+		if strings.ToLower(strings.TrimSpace(message.Role)) != "user" {
+			continue
+		}
+		var text string
+		if json.Unmarshal(message.Content, &text) == nil {
+			prompt, references = strings.TrimSpace(text), nil
+			continue
+		}
+		var parts []map[string]json.RawMessage
+		if err := json.Unmarshal(message.Content, &parts); err != nil {
+			return "", nil, errors.New("user ?? content ???????????")
+		}
+		for _, part := range parts {
+			var kind string
+			_ = json.Unmarshal(part["type"], &kind)
+			if kind == "text" || kind == "input_text" {
+				var value string
+				if json.Unmarshal(part["text"], &value) == nil {
+					text += value
+				}
+				continue
+			}
+			if kind == "image_url" || kind == "input_image" {
+				var value string
+				if json.Unmarshal(part["image_url"], &value) != nil {
+					var image struct {
+						URL string `json:"url"`
+					}
+					_ = json.Unmarshal(part["image_url"], &image)
+					value = image.URL
+				}
+				if strings.TrimSpace(value) != "" {
+					references = append([]string{strings.TrimSpace(value)}, references...)
+				}
+			}
+		}
+		prompt = strings.TrimSpace(text)
+	}
+	return prompt, references, nil
+}
+
+func videoAspectRatioFromChatSize(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1280x720", "1920x1080", "16:9":
+		return "16:9"
+	case "720x1280", "1080x1920", "9:16":
+		return "9:16"
+	case "1024x1024", "1:1":
+		return "1:1"
+	default:
+		return value
+	}
+}
+
+func writeConsoleVideoChatResult(c *gin.Context, model, content string, streaming bool) {
+	id := "chatcmpl_video_" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	created := time.Now().Unix()
+	if !streaming {
+		c.JSON(http.StatusOK, gin.H{"id": id, "object": "chat.completion", "created": created, "model": model, "choices": []any{gin.H{"index": 0, "message": gin.H{"role": "assistant", "content": content}, "finish_reason": "stop"}}, "usage": gin.H{"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}})
+		return
+	}
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Status(http.StatusOK)
+	chunks := []gin.H{{"id": id, "object": "chat.completion.chunk", "created": created, "model": model, "choices": []any{gin.H{"index": 0, "delta": gin.H{"role": "assistant"}, "finish_reason": nil}}}, {"id": id, "object": "chat.completion.chunk", "created": created, "model": model, "choices": []any{gin.H{"index": 0, "delta": gin.H{"content": content}, "finish_reason": nil}}}, {"id": id, "object": "chat.completion.chunk", "created": created, "model": model, "choices": []any{gin.H{"index": 0, "delta": gin.H{}, "finish_reason": "stop"}}}}
+	for _, chunk := range chunks {
+		data, _ := json.Marshal(chunk)
+		_, _ = c.Writer.Write([]byte("data: "))
+		_, _ = c.Writer.Write(data)
+		_, _ = c.Writer.Write([]byte("\n\n"))
+		c.Writer.Flush()
+	}
+	_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
+	c.Writer.Flush()
 }
 
 func (h *Handler) createMessage(c *gin.Context) {
