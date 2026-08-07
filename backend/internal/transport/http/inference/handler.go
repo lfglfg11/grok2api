@@ -2,6 +2,7 @@ package inference
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -419,9 +420,25 @@ func (h *Handler) createConsoleVideoChat(c *gin.Context, body []byte, request ch
 		writeGatewayError(c, err)
 		return true
 	}
-	statusURL := h.publicURL("/v1/videos/" + url.PathEscape(job.ID))
-	contentURL := h.publicURL("/v1/videos/" + url.PathEscape(job.ID) + "/content")
-	writeConsoleVideoChatResult(c, request.Model, "Video task created. Status: "+statusURL+"\nContent when completed: "+contentURL, request.Stream)
+	if request.Stream {
+		h.streamConsoleVideoChat(c, request.Model, job.ID, clientKey)
+		return true
+	}
+	job, err = h.waitConsoleVideoChat(c.Request.Context(), job.ID, clientKey)
+	if err != nil {
+		writeOpenAIError(c, http.StatusBadGateway, "video_generation_failed", err.Error())
+		return true
+	}
+	if job.Status == mediadomain.StatusFailed {
+		writeOpenAIError(c, http.StatusBadGateway, videoChatErrorCode(job), videoChatErrorMessage(job))
+		return true
+	}
+	publicURL, err := h.completedVideoPublicURL(job)
+	if err != nil {
+		writeOpenAIError(c, http.StatusBadGateway, "video_result_unavailable", err.Error())
+		return true
+	}
+	writeConsoleVideoChatResult(c, request.Model, publicURL)
 	return true
 }
 
@@ -439,7 +456,7 @@ func extractChatVideoPrompt(messages []chatVideoMessage) (string, []string, erro
 		}
 		var parts []map[string]json.RawMessage
 		if err := json.Unmarshal(message.Content, &parts); err != nil {
-			return "", nil, errors.New("user ?? content Content when completed: ?")
+			return "", nil, errors.New("user message content must be a string or content array")
 		}
 		for _, part := range parts {
 			var kind string
@@ -483,24 +500,139 @@ func videoAspectRatioFromChatSize(value string) string {
 	}
 }
 
-func writeConsoleVideoChatResult(c *gin.Context, model, content string, streaming bool) {
-	id := "chatcmpl_video_" + strconv.FormatInt(time.Now().UnixNano(), 36)
-	created := time.Now().Unix()
-	if !streaming {
-		c.JSON(http.StatusOK, gin.H{"id": id, "object": "chat.completion", "created": created, "model": model, "choices": []any{gin.H{"index": 0, "message": gin.H{"role": "assistant", "content": content}, "finish_reason": "stop"}}, "usage": gin.H{"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}})
-		return
+func (h *Handler) waitConsoleVideoChat(ctx context.Context, jobID string, clientKey clientkeydomain.Key) (mediadomain.Job, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, 2*time.Hour+5*time.Minute)
+	defer cancel()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		job, err := h.gateway.GetVideo(waitCtx, jobID, clientKey)
+		if err != nil {
+			return mediadomain.Job{}, err
+		}
+		if job.Status == mediadomain.StatusCompleted || job.Status == mediadomain.StatusFailed {
+			return job, nil
+		}
+		select {
+		case <-waitCtx.Done():
+			return mediadomain.Job{}, waitCtx.Err()
+		case <-ticker.C:
+		}
 	}
+}
+
+func (h *Handler) streamConsoleVideoChat(c *gin.Context, model, jobID string, clientKey clientkeydomain.Key) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
+	c.Header("X-Accel-Buffering", "no")
 	c.Status(http.StatusOK)
-	chunks := []gin.H{{"id": id, "object": "chat.completion.chunk", "created": created, "model": model, "choices": []any{gin.H{"index": 0, "delta": gin.H{"role": "assistant"}, "finish_reason": nil}}}, {"id": id, "object": "chat.completion.chunk", "created": created, "model": model, "choices": []any{gin.H{"index": 0, "delta": gin.H{"content": content}, "finish_reason": nil}}}, {"id": id, "object": "chat.completion.chunk", "created": created, "model": model, "choices": []any{gin.H{"index": 0, "delta": gin.H{}, "finish_reason": "stop"}}}}
-	for _, chunk := range chunks {
-		data, _ := json.Marshal(chunk)
-		_, _ = c.Writer.Write([]byte("data: "))
-		_, _ = c.Writer.Write(data)
-		_, _ = c.Writer.Write([]byte("\n\n"))
-		c.Writer.Flush()
+	responseID := "chatcmpl_video_" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	created := time.Now().Unix()
+	if !writeConsoleVideoChatChunk(c, responseID, model, created, gin.H{"role": "assistant"}, nil) {
+		return
 	}
+	waitCtx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Hour+5*time.Minute)
+	defer cancel()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	lastProgress := -1
+	for {
+		job, err := h.gateway.GetVideo(waitCtx, jobID, clientKey)
+		if err != nil {
+			writeConsoleVideoChatError(c, "video_generation_failed", err.Error())
+			return
+		}
+		progress := max(0, min(100, job.Progress))
+		if progress != lastProgress {
+			if !writeConsoleVideoChatChunk(c, responseID, model, created, gin.H{"reasoning_content": fmt.Sprintf("Video generation progress: %d%%\n", progress)}, nil) {
+				return
+			}
+			lastProgress = progress
+		}
+		switch job.Status {
+		case mediadomain.StatusCompleted:
+			publicURL, resultErr := h.completedVideoPublicURL(job)
+			if resultErr != nil {
+				writeConsoleVideoChatError(c, "video_result_unavailable", resultErr.Error())
+				return
+			}
+			if !writeConsoleVideoChatChunk(c, responseID, model, created, gin.H{"content": publicURL}, nil) {
+				return
+			}
+			if !writeConsoleVideoChatChunk(c, responseID, model, created, gin.H{}, "stop") {
+				return
+			}
+			writeConsoleVideoChatDone(c)
+			return
+		case mediadomain.StatusFailed:
+			writeConsoleVideoChatError(c, videoChatErrorCode(job), videoChatErrorMessage(job))
+			return
+		}
+		select {
+		case <-waitCtx.Done():
+			writeConsoleVideoChatError(c, "video_generation_timeout", waitCtx.Err().Error())
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func (h *Handler) completedVideoPublicURL(job mediadomain.Job) (string, error) {
+	if job.Status != mediadomain.StatusCompleted || strings.TrimSpace(job.ResultAssetID) == "" {
+		return "", errors.New("completed video has no local public asset")
+	}
+	return h.publicURL("/v1/media/videos/" + url.PathEscape(job.ResultAssetID)), nil
+}
+
+func videoChatErrorCode(job mediadomain.Job) string {
+	if value := strings.TrimSpace(job.ErrorCode); value != "" {
+		return value
+	}
+	return "video_generation_failed"
+}
+func videoChatErrorMessage(job mediadomain.Job) string {
+	if value := strings.TrimSpace(job.ErrorMessage); value != "" {
+		return value
+	}
+	return "video generation failed"
+}
+
+func writeConsoleVideoChatResult(c *gin.Context, model, content string) {
+	id := "chatcmpl_video_" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	c.JSON(http.StatusOK, gin.H{"id": id, "object": "chat.completion", "created": time.Now().Unix(), "model": model, "choices": []any{gin.H{"index": 0, "message": gin.H{"role": "assistant", "content": content}, "finish_reason": "stop"}}, "usage": gin.H{"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}})
+}
+
+func writeConsoleVideoChatChunk(c *gin.Context, id, model string, created int64, delta gin.H, finishReason any) bool {
+	payload := gin.H{
+		"id": id, "object": "chat.completion.chunk", "created": created, "model": model,
+		"choices": []any{gin.H{"index": 0, "delta": delta, "finish_reason": finishReason}},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return false
+	}
+	if _, err = c.Writer.Write([]byte("data: ")); err != nil {
+		return false
+	}
+	if _, err = c.Writer.Write(data); err != nil {
+		return false
+	}
+	if _, err = c.Writer.Write([]byte("\n\n")); err != nil {
+		return false
+	}
+	c.Writer.Flush()
+	return true
+}
+
+func writeConsoleVideoChatError(c *gin.Context, code, message string) {
+	data, _ := json.Marshal(gin.H{"error": gin.H{"message": message, "type": "server_error", "code": code}})
+	_, _ = c.Writer.Write([]byte("data: "))
+	_, _ = c.Writer.Write(data)
+	_, _ = c.Writer.Write([]byte("\n\n"))
+	writeConsoleVideoChatDone(c)
+}
+
+func writeConsoleVideoChatDone(c *gin.Context) {
 	_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
 	c.Writer.Flush()
 }

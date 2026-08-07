@@ -1078,6 +1078,38 @@ func TestCompatibleVideoResponseStatusMapping(t *testing.T) {
 	}
 }
 
+func TestCompletedVideoPublicURLRequiresLocalAsset(t *testing.T) {
+	handler := NewHandler(nil, nil, 1<<20, "https://grok.example.com/")
+	job := mediadomain.Job{Status: mediadomain.StatusCompleted, ResultAssetID: "vid_abcdefghijklmnopqrstuvwxyz012345"}
+	got, err := handler.completedVideoPublicURL(job)
+	if err != nil || got != "https://grok.example.com/v1/media/videos/vid_abcdefghijklmnopqrstuvwxyz012345" {
+		t.Fatalf("completedVideoPublicURL() = %q, %v", got, err)
+	}
+	job.ResultAssetID = ""
+	if _, err := handler.completedVideoPublicURL(job); err == nil {
+		t.Fatal("completed video without local asset was accepted")
+	}
+}
+
+func TestConsoleVideoChatStreamProgressAndErrorEvents(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	if !writeConsoleVideoChatChunk(context, "chatcmpl_test", "grok-imagine-video", 123, gin.H{"reasoning_content": "Video generation progress: 42%\n"}, nil) {
+		t.Fatal("progress chunk write failed")
+	}
+	writeConsoleVideoChatError(context, "generation_failed", "upstream rejected")
+	body := recorder.Body.String()
+	for _, expected := range []string{`"object":"chat.completion.chunk"`, `"reasoning_content":"Video generation progress: 42%\n"`, `data: {"error":{"code":"generation_failed","message":"upstream rejected","type":"server_error"}}`, "data: [DONE]"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("stream body missing %q: %s", expected, body)
+		}
+	}
+	if strings.Contains(body, `"finish_reason":"stop"`) {
+		t.Fatalf("failed stream emitted success finish: %s", body)
+	}
+}
+
 func TestCompatibleVideoResultURLUsesPublicLocalAsset(t *testing.T) {
 	handler := NewHandler(nil, nil, 1<<20, "https://grok.example.com/")
 	job := mediadomain.Job{ID: "video_sora_test", Status: mediadomain.StatusCompleted, ResultAssetID: "vid_abcdefghijklmnopqrstuvwxyz012345"}
