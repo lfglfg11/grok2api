@@ -104,7 +104,9 @@ func TestVideoGenerationUsesOfficialXAIEndpointsAndFields(t *testing.T) {
 	}
 
 	unsupportedRecorder := httptest.NewRecorder()
-	router.ServeHTTP(unsupportedRecorder, httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(`{}`)))
+	compatibleRequest := httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(`{}`))
+	compatibleRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(unsupportedRecorder, compatibleRequest)
 	if unsupportedRecorder.Code != http.StatusUnauthorized {
 		t.Fatalf("unsupported video endpoint status=%d", unsupportedRecorder.Code)
 	}
