@@ -1077,3 +1077,15 @@ func TestCompatibleVideoResponseStatusMapping(t *testing.T) {
 		t.Fatalf("response = %#v", response)
 	}
 }
+
+func TestCompatibleVideoResultURLUsesPublicLocalAsset(t *testing.T) {
+	handler := NewHandler(nil, nil, 1<<20, "https://grok.example.com/")
+	job := mediadomain.Job{ID: "video_sora_test", Status: mediadomain.StatusCompleted, ResultAssetID: "vid_abcdefghijklmnopqrstuvwxyz012345"}
+	if got, want := handler.videoResultURL(job), "https://grok.example.com/v1/media/videos/vid_abcdefghijklmnopqrstuvwxyz012345"; got != want {
+		t.Fatalf("videoResultURL() = %q, want %q", got, want)
+	}
+	job.ResultAssetID = ""
+	if got, want := handler.videoResultURL(job), "https://grok.example.com/v1/videos/video_sora_test/content"; got != want {
+		t.Fatalf("videoResultURL() fallback = %q, want %q", got, want)
+	}
+}

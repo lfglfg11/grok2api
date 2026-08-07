@@ -876,14 +876,24 @@ func (h *Handler) getVideo(c *gin.Context) {
 		return
 	}
 	if strings.HasPrefix(job.ID, "video_sora_") {
-		c.JSON(http.StatusOK, compatibleVideoResponse(job, h.videoContentURL(job.ID)))
+		c.JSON(http.StatusOK, compatibleVideoResponse(job, h.videoResultURL(job)))
 		return
 	}
 	c.JSON(http.StatusOK, videoGenerationResponse(job, h.videoContentURL(job.ID)))
 }
 
 func (h *Handler) videoContentURL(jobID string) string {
-	path := "/v1/videos/" + url.PathEscape(jobID) + "/content"
+	return h.publicURL("/v1/videos/" + url.PathEscape(jobID) + "/content")
+}
+
+func (h *Handler) videoResultURL(job mediadomain.Job) string {
+	if job.Status == mediadomain.StatusCompleted && strings.TrimSpace(job.ResultAssetID) != "" {
+		return h.publicURL("/v1/media/videos/" + url.PathEscape(job.ResultAssetID))
+	}
+	return h.videoContentURL(job.ID)
+}
+
+func (h *Handler) publicURL(path string) string {
 	baseURL := h.publicAPIBaseURL
 	if h.publicBaseURL != nil {
 		baseURL = strings.TrimRight(strings.TrimSpace(h.publicBaseURL()), "/")
