@@ -1213,7 +1213,7 @@ func TestConsoleVideoChatOptionsAndStreamingResponse(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"stream":true,"video_config":{"duration":"4","size":"720x1280","resolution":"480p"}}`), &input); err != nil {
 		t.Fatal(err)
 	}
-	duration, ratio, resolution, err := consoleVideoChatOptions(input)
+	duration, ratio, resolution, err := consoleVideoChatOptions(input, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

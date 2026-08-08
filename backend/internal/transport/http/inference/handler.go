@@ -550,7 +550,11 @@ func resolveConsoleVideoChatAspectRatio(aspectRatio, prompt string, referenceCou
 		prompt, aspectRatio = inferChatVideoAspectRatio(prompt)
 	}
 	if strings.TrimSpace(aspectRatio) == "" {
-		aspectRatio = "16:9"
+		if referenceCount > 0 {
+			aspectRatio = "auto"
+		} else {
+			aspectRatio = "16:9"
+		}
 	}
 	return prompt, aspectRatio
 }
@@ -1078,8 +1082,13 @@ func (h *Handler) generateVideo(c *gin.Context) {
 		return
 	}
 	aspectRatio := strings.TrimSpace(request.AspectRatio)
+	hasImageInput := request.Image != nil || len(request.ReferenceImages) > 0
 	if aspectRatio == "" {
-		aspectRatio = "16:9"
+		if hasImageInput {
+			aspectRatio = "auto"
+		} else {
+			aspectRatio = "16:9"
+		}
 	}
 	if !validVideoAspectRatio(aspectRatio) {
 		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "aspect_ratio 必须是 1:1、16:9、9:16、4:3、3:4、3:2 或 2:3")
@@ -1173,7 +1182,11 @@ func (h *Handler) createCompatibleVideo(c *gin.Context) {
 		}
 	}
 	if aspectRatio == "" {
-		aspectRatio = "16:9"
+		if strings.TrimSpace(request.Image) != "" || len(request.Images) > 0 || strings.TrimSpace(request.InputReference) != "" || len(request.ReferenceImages) > 0 {
+			aspectRatio = "auto"
+		} else {
+			aspectRatio = "16:9"
+		}
 	}
 	if !validVideoAspectRatio(aspectRatio) {
 		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "aspect_ratio 无效")
@@ -1435,7 +1448,7 @@ func hasJSONValue(value json.RawMessage) bool {
 
 func validVideoAspectRatio(value string) bool {
 	switch value {
-	case "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3":
+	case "auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3":
 		return true
 	default:
 		return false

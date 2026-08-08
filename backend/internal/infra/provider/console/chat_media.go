@@ -228,7 +228,7 @@ func (a *Adapter) forwardVideoChatCompletion(ctx context.Context, request provid
 	if len(imageURLs) > consoleMaxVideoImages {
 		return invalidConversationResponse(conversation.OperationChat, fmt.Errorf("Console grok-imagine-video 最多支持 %d 张首图", consoleMaxVideoImages)), nil
 	}
-	duration, ratio, resolution, err := consoleVideoChatOptions(input)
+	duration, ratio, resolution, err := consoleVideoChatOptions(input, len(imageURLs))
 	if err != nil {
 		return invalidConversationResponse(conversation.OperationChat, err), nil
 	}
@@ -247,7 +247,7 @@ func (a *Adapter) forwardVideoChatCompletion(ctx context.Context, request provid
 	return consoleChatCompletionResponse(request.Model, content, streaming, duration), nil
 }
 
-func consoleVideoChatOptions(input consoleMediaChatInput) (int, string, string, error) {
+func consoleVideoChatOptions(input consoleMediaChatInput, referenceCount int) (int, string, string, error) {
 	durationRaw := input.Duration
 	if len(bytes.TrimSpace(durationRaw)) == 0 {
 		durationRaw = input.Seconds
@@ -290,7 +290,11 @@ func consoleVideoChatOptions(input consoleMediaChatInput) (int, string, string, 
 		ratio = consoleVideoRatioFromSize(size)
 	}
 	if strings.TrimSpace(ratio) == "" {
-		ratio = "16:9"
+		if referenceCount > 0 {
+			ratio = "auto"
+		} else {
+			ratio = "16:9"
+		}
 	}
 	if strings.TrimSpace(resolution) == "" {
 		resolution = "720p"
