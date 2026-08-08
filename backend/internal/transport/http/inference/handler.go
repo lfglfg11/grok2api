@@ -399,7 +399,7 @@ func (h *Handler) createConsoleVideoChat(c *gin.Context, body []byte, request ch
 		return true
 	}
 	prompt, aspectRatio = resolveConsoleVideoChatAspectRatio(aspectRatio, prompt, len(references))
-	if !validVideoAspectRatio(aspectRatio) {
+	if strings.TrimSpace(aspectRatio) != "" && !validVideoAspectRatio(aspectRatio) {
 		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "aspect_ratio is invalid")
 		return true
 	}
