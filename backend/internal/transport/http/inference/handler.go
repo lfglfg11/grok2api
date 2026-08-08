@@ -356,7 +356,7 @@ func (h *Handler) createChatCompletion(c *gin.Context) {
 
 func isConsoleVideoChatModel(value string) bool {
 	value = strings.TrimPrefix(strings.TrimSpace(value), "Console/")
-	return strings.EqualFold(value, "grok-imagine-video")
+	return strings.EqualFold(value, "grok-imagine-video") || strings.EqualFold(value, "grok-imagine-video-1.5-console")
 }
 
 func (h *Handler) createConsoleVideoChat(c *gin.Context, body []byte, request chatCompletionRequest, clientKey clientkeydomain.Key, requestID string) bool {
@@ -391,6 +391,9 @@ func (h *Handler) createConsoleVideoChat(c *gin.Context, body []byte, request ch
 		}
 	}
 	duration, err := parseConsoleVideoChatDuration(durationRaw)
+	if len(references) > 1 && duration > 10 {
+		duration = 10
+	}
 	if err != nil {
 		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", err.Error())
 		return true

@@ -37,7 +37,7 @@ func TestConsoleRoutesUseStableProviderNamespace(t *testing.T) {
 			t.Fatalf("Console image route capabilities for %s = %#v", modelID, seen[modelID])
 		}
 	}
-	if !seen["Console/grok-imagine-video"]["video"] {
+	if !seen["Console/grok-imagine-video-1.5-console"]["video"] {
 		t.Fatal("Console video route is missing")
 	}
 }

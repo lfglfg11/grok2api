@@ -405,7 +405,7 @@ func (a *Adapter) GenerateVideo(ctx context.Context, request provider.VideoReque
 		return provider.VideoResult{}, errors.New("duration 必须在 1 到 15 秒之间")
 	}
 	if len(request.ReferenceURLs) > 1 && request.Duration > consoleMaxReferenceVideoDuration {
-		return provider.VideoResult{}, errors.New("使用多张参考图时，duration 不能超过 10 秒")
+		request.Duration = consoleMaxReferenceVideoDuration
 	}
 	if request.Resolution != "" && request.Resolution != "480p" && request.Resolution != "720p" {
 		return provider.VideoResult{}, errors.New("grok-imagine-video 仅支持 480p 或 720p")

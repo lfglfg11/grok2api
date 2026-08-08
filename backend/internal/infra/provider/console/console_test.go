@@ -51,7 +51,7 @@ func TestCatalogContainsAllConsoleModelsAndAliases(t *testing.T) {
 		{publicID: "Console/grok-imagine-image-quality", capability: modeldomain.CapabilityImageEdit}:   "grok-imagine-image-quality",
 		{publicID: "Console/grok-imagine-image", capability: modeldomain.CapabilityImage}:               "grok-imagine-image",
 		{publicID: "Console/grok-imagine-image", capability: modeldomain.CapabilityImageEdit}:           "grok-imagine-image",
-		{publicID: "Console/grok-imagine-video", capability: modeldomain.CapabilityVideo}:               "grok-imagine-video",
+		{publicID: "Console/grok-imagine-video-1.5-console", capability: modeldomain.CapabilityVideo}:   "grok-imagine-video",
 	}
 	routes := Routes()
 	if len(routes) != len(expected) {
@@ -1363,7 +1363,7 @@ func TestConsoleVideoCreatesAndPollsStandardResources(t *testing.T) {
 			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 				t.Error(err)
 			}
-			if payload["model"] != "grok-imagine-video" || payload["duration"] != float64(6) || payload["resolution"] != "720p" {
+			if payload["model"] != "grok-imagine-video" || payload["duration"] != float64(10) || payload["resolution"] != "720p" {
 				t.Errorf("video payload = %#v", payload)
 			}
 			references, _ := payload["reference_images"].([]any)
@@ -1381,7 +1381,7 @@ func TestConsoleVideoCreatesAndPollsStandardResources(t *testing.T) {
 	adapter, credential := newConsoleTestAdapter(t, server.URL)
 	progress := 0
 	result, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
-		Credential: credential, Prompt: "animate", Duration: 6, AspectRatio: "16:9", Resolution: "720p",
+		Credential: credential, Prompt: "animate", Duration: 15, AspectRatio: "16:9", Resolution: "720p",
 		ReferenceURLs: []string{"https://example.com/first.png", "https://example.com/second.png"},
 		Progress:      func(value int) { progress = value },
 	})
@@ -1390,12 +1390,6 @@ func TestConsoleVideoCreatesAndPollsStandardResources(t *testing.T) {
 	}
 	if result.URL != "https://vidgen.x.ai/result.mp4" || result.ContentType != "video/mp4" || progress != 99 {
 		t.Fatalf("video result = %#v, progress = %d", result, progress)
-	}
-	if _, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
-		Credential: credential, Prompt: "animate", Duration: 15,
-		ReferenceURLs: []string{"https://example.com/first.png", "https://example.com/second.png"},
-	}); err == nil || !strings.Contains(err.Error(), "10") {
-		t.Fatalf("multi-reference duration guard error = %v", err)
 	}
 }
 
