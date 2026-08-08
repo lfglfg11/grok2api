@@ -1145,6 +1145,25 @@ func TestCompletedVideoPublicURLRequiresLocalAsset(t *testing.T) {
 	}
 }
 
+func TestConsoleVideoStreamProgressThreshold(t *testing.T) {
+	for progress := 0; progress <= consoleVideoStreamProgressThreshold; progress++ {
+		if consoleVideoStreamProgressVisible(progress) {
+			t.Fatalf("progress %d should remain hidden", progress)
+		}
+	}
+	if !consoleVideoStreamProgressVisible(consoleVideoStreamProgressThreshold + 1) {
+		t.Fatalf("progress above threshold should be visible")
+	}
+}
+
+func TestVideoChatFailureHTTPStatus(t *testing.T) {
+	if got := videoChatFailureHTTPStatus(mediadomain.Job{ErrorMessage: "Console 媒体上游返回 400: Generated video rejected by content moderation."}); got != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", got, http.StatusBadRequest)
+	}
+	if got := videoChatFailureHTTPStatus(mediadomain.Job{ErrorMessage: "upstream unavailable"}); got != http.StatusBadGateway {
+		t.Fatalf("fallback status = %d, want %d", got, http.StatusBadGateway)
+	}
+}
 func TestConsoleVideoChatStreamProgressAndErrorEvents(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()

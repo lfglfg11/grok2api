@@ -585,28 +585,49 @@ func (h *Handler) waitConsoleVideoChat(ctx context.Context, jobID string, client
 }
 
 func (h *Handler) streamConsoleVideoChat(c *gin.Context, model, jobID string, clientKey clientkeydomain.Key) {
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("X-Accel-Buffering", "no")
-	c.Status(http.StatusOK)
 	responseID := "chatcmpl_video_" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	created := time.Now().Unix()
-	if !writeConsoleVideoChatChunk(c, responseID, model, created, gin.H{"role": "assistant"}, nil) {
-		return
+	started := false
+	lastProgress := -1
+	startStream := func() bool {
+		if started {
+			return true
+		}
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("X-Accel-Buffering", "no")
+		c.Status(http.StatusOK)
+		started = true
+		return writeConsoleVideoChatChunk(c, responseID, model, created, gin.H{"role": "assistant"}, nil)
+	}
+	writeFailure := func(code, message string, status int) {
+		if started {
+			writeConsoleVideoChatError(c, code, message)
+			return
+		}
+		writeOpenAIError(c, status, code, message)
 	}
 	waitCtx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Hour+5*time.Minute)
 	defer cancel()
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-	lastProgress := -1
 	for {
 		job, err := h.gateway.GetVideo(waitCtx, jobID, clientKey)
 		if err != nil {
-			writeConsoleVideoChatError(c, "video_generation_failed", err.Error())
+			writeFailure("video_generation_failed", err.Error(), http.StatusBadGateway)
+			return
+		}
+		if job.Status == mediadomain.StatusFailed {
+			writeFailure(videoChatErrorCode(job), videoChatErrorMessage(job), videoChatFailureHTTPStatus(job))
 			return
 		}
 		progress := max(0, min(100, job.Progress))
-		if progress != lastProgress {
+		if !started && (consoleVideoStreamProgressVisible(progress) || job.Status == mediadomain.StatusCompleted) {
+			if !startStream() {
+				return
+			}
+		}
+		if started && progress != lastProgress {
 			if !writeConsoleVideoChatChunk(c, responseID, model, created, gin.H{"reasoning_content": fmt.Sprintf("Video generation progress: %d%%\n", progress)}, nil) {
 				return
 			}
@@ -616,7 +637,7 @@ func (h *Handler) streamConsoleVideoChat(c *gin.Context, model, jobID string, cl
 		case mediadomain.StatusCompleted:
 			publicURL, resultErr := h.completedVideoPublicURL(job)
 			if resultErr != nil {
-				writeConsoleVideoChatError(c, "video_result_unavailable", resultErr.Error())
+				writeFailure("video_result_unavailable", resultErr.Error(), http.StatusBadGateway)
 				return
 			}
 			if !writeConsoleVideoChatChunk(c, responseID, model, created, gin.H{"content": formatConsoleVideoChatContent(publicURL)}, nil) {
@@ -627,19 +648,21 @@ func (h *Handler) streamConsoleVideoChat(c *gin.Context, model, jobID string, cl
 			}
 			writeConsoleVideoChatDone(c)
 			return
-		case mediadomain.StatusFailed:
-			writeConsoleVideoChatError(c, videoChatErrorCode(job), videoChatErrorMessage(job))
-			return
 		}
 		select {
 		case <-waitCtx.Done():
-			writeConsoleVideoChatError(c, "video_generation_timeout", waitCtx.Err().Error())
+			writeFailure("video_generation_timeout", waitCtx.Err().Error(), http.StatusGatewayTimeout)
 			return
 		case <-ticker.C:
 		}
 	}
 }
 
+const consoleVideoStreamProgressThreshold = 5
+
+func consoleVideoStreamProgressVisible(progress int) bool {
+	return progress > consoleVideoStreamProgressThreshold
+}
 func (h *Handler) completedVideoPublicURL(job mediadomain.Job) (string, error) {
 	if job.Status != mediadomain.StatusCompleted || strings.TrimSpace(job.ResultAssetID) == "" {
 		return "", errors.New("completed video has no local public asset")
@@ -660,6 +683,25 @@ func videoChatErrorMessage(job mediadomain.Job) string {
 	return "video generation failed"
 }
 
+func videoChatFailureHTTPStatus(job mediadomain.Job) int {
+	message := videoChatErrorMessage(job)
+	for index := 0; index+3 <= len(message); index++ {
+		if message[index] < '4' || message[index] > '5' || message[index+1] < '0' || message[index+1] > '9' || message[index+2] < '0' || message[index+2] > '9' {
+			continue
+		}
+		if index > 0 && message[index-1] >= '0' && message[index-1] <= '9' {
+			continue
+		}
+		if index+3 < len(message) && message[index+3] >= '0' && message[index+3] <= '9' {
+			continue
+		}
+		status, err := strconv.Atoi(message[index : index+3])
+		if err == nil && status >= http.StatusBadRequest && status < http.StatusInternalServerError+100 {
+			return status
+		}
+	}
+	return http.StatusBadGateway
+}
 func formatConsoleVideoChatContent(publicURL string) string {
 	escapedURL := html.EscapeString(publicURL)
 	return "<video controls preload=\"metadata\" src=\"" + escapedURL + "\"></video>\n\n[Download Video](" + publicURL + ")"
