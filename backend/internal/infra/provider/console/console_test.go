@@ -1366,6 +1366,10 @@ func TestConsoleVideoCreatesAndPollsStandardResources(t *testing.T) {
 			if payload["model"] != "grok-imagine-video" || payload["duration"] != float64(6) || payload["resolution"] != "720p" {
 				t.Errorf("video payload = %#v", payload)
 			}
+			references, _ := payload["reference_images"].([]any)
+			if len(references) != 2 || payload["image"] != nil {
+				t.Errorf("video references payload = %#v", payload)
+			}
 			_, _ = writer.Write([]byte(`{"request_id":"upstream-video-1"}`))
 		case request.Method == http.MethodGet && request.URL.Path == "/v1/videos/upstream-video-1":
 			_, _ = writer.Write([]byte(`{"status":"done","progress":100,"video":{"url":"https://vidgen.x.ai/result.mp4"}}`))
@@ -1378,7 +1382,8 @@ func TestConsoleVideoCreatesAndPollsStandardResources(t *testing.T) {
 	progress := 0
 	result, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
 		Credential: credential, Prompt: "animate", Duration: 6, AspectRatio: "16:9", Resolution: "720p",
-		Progress: func(value int) { progress = value },
+		ReferenceURLs: []string{"https://example.com/first.png", "https://example.com/second.png"},
+		Progress:      func(value int) { progress = value },
 	})
 	if err != nil {
 		t.Fatal(err)

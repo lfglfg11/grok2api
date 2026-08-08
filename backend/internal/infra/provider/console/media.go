@@ -29,7 +29,7 @@ const (
 	consoleMediaOutputAttempts  = 3
 	consoleVideoPollEvery       = 2 * time.Second
 	consoleMaxEditImages        = 3
-	consoleMaxVideoImages       = 1
+	consoleMaxVideoImages       = mediadomain.MaxInputImages
 )
 
 type consoleMediaUpstreamError struct {
@@ -398,7 +398,7 @@ func (a *Adapter) GenerateVideo(ctx context.Context, request provider.VideoReque
 		return provider.VideoResult{}, errors.New("Console 视频模型未注册")
 	}
 	if len(request.ReferenceURLs) > consoleMaxVideoImages {
-		return provider.VideoResult{}, fmt.Errorf("Console grok-imagine-video 最多支持 1 张首图，当前为 %d 张", len(request.ReferenceURLs))
+		return provider.VideoResult{}, fmt.Errorf("Console grok-imagine-video 最多支持 %d 张参考图，当前为 %d 张", consoleMaxVideoImages, len(request.ReferenceURLs))
 	}
 	if request.Duration < 1 || request.Duration > 15 {
 		return provider.VideoResult{}, errors.New("duration 必须在 1 到 15 秒之间")
@@ -418,12 +418,20 @@ func (a *Adapter) GenerateVideo(ctx context.Context, request provider.VideoReque
 	if resolution := strings.TrimSpace(request.Resolution); resolution != "" {
 		payload["resolution"] = resolution
 	}
-	if len(request.ReferenceURLs) == 1 {
-		value := strings.TrimSpace(request.ReferenceURLs[0])
-		if !validConsoleMediaInputURL(value, "image") {
-			return provider.VideoResult{}, errors.New("视频首图必须是 HTTPS URL 或 image data URL")
+	if len(request.ReferenceURLs) > 0 {
+		references := make([]map[string]any, 0, len(request.ReferenceURLs))
+		for _, rawURL := range request.ReferenceURLs {
+			value := strings.TrimSpace(rawURL)
+			if !validConsoleMediaInputURL(value, "image") {
+				return provider.VideoResult{}, errors.New("video reference images must be HTTPS URLs or image data URLs")
+			}
+			references = append(references, map[string]any{"url": value})
 		}
-		payload["image"] = map[string]any{"url": value}
+		if len(references) == 1 {
+			payload["image"] = references[0]
+		} else {
+			payload["reference_images"] = references
+		}
 	}
 	if _, hasPrompt := payload["prompt"]; !hasPrompt {
 		if _, hasImage := payload["image"]; !hasImage {
