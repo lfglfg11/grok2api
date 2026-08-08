@@ -23,13 +23,14 @@ import (
 )
 
 const (
-	consoleMediaBodyLimit       = 2 << 20
-	consoleImageBodyLimit       = 32 << 20
-	consoleImageDownloadTimeout = 45 * time.Second
-	consoleMediaOutputAttempts  = 3
-	consoleVideoPollEvery       = 2 * time.Second
-	consoleMaxEditImages        = 3
-	consoleMaxVideoImages       = mediadomain.MaxInputImages
+	consoleMediaBodyLimit            = 2 << 20
+	consoleImageBodyLimit            = 32 << 20
+	consoleImageDownloadTimeout      = 45 * time.Second
+	consoleMediaOutputAttempts       = 3
+	consoleVideoPollEvery            = 2 * time.Second
+	consoleMaxEditImages             = 3
+	consoleMaxVideoImages            = mediadomain.MaxInputImages
+	consoleMaxReferenceVideoDuration = 10
 )
 
 type consoleMediaUpstreamError struct {
@@ -402,6 +403,9 @@ func (a *Adapter) GenerateVideo(ctx context.Context, request provider.VideoReque
 	}
 	if request.Duration < 1 || request.Duration > 15 {
 		return provider.VideoResult{}, errors.New("duration 必须在 1 到 15 秒之间")
+	}
+	if len(request.ReferenceURLs) > 1 && request.Duration > consoleMaxReferenceVideoDuration {
+		return provider.VideoResult{}, errors.New("使用多张参考图时，duration 不能超过 10 秒")
 	}
 	if request.Resolution != "" && request.Resolution != "480p" && request.Resolution != "720p" {
 		return provider.VideoResult{}, errors.New("grok-imagine-video 仅支持 480p 或 720p")

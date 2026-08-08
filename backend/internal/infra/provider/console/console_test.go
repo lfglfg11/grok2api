@@ -1391,6 +1391,12 @@ func TestConsoleVideoCreatesAndPollsStandardResources(t *testing.T) {
 	if result.URL != "https://vidgen.x.ai/result.mp4" || result.ContentType != "video/mp4" || progress != 99 {
 		t.Fatalf("video result = %#v, progress = %d", result, progress)
 	}
+	if _, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
+		Credential: credential, Prompt: "animate", Duration: 15,
+		ReferenceURLs: []string{"https://example.com/first.png", "https://example.com/second.png"},
+	}); err == nil || !strings.Contains(err.Error(), "10") {
+		t.Fatalf("multi-reference duration guard error = %v", err)
+	}
 }
 
 func TestParseConsoleVideoStatusRejectsUnknownState(t *testing.T) {
