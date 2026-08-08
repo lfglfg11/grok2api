@@ -389,13 +389,16 @@ func (h *Handler) createConsoleVideoChat(c *gin.Context, body []byte, request ch
 			aspectRatio = input.VideoConfig.Size
 		}
 	}
-	duration, err := parseVideoDuration(durationRaw)
+	duration, err := parseConsoleVideoChatDuration(durationRaw)
 	if err != nil {
 		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", err.Error())
 		return true
 	}
 	if strings.Contains(aspectRatio, "x") {
 		aspectRatio = videoAspectRatioFromChatSize(aspectRatio)
+	}
+	if strings.TrimSpace(aspectRatio) == "" {
+		prompt, aspectRatio = inferChatVideoAspectRatio(prompt)
 	}
 	if strings.TrimSpace(aspectRatio) == "" {
 		aspectRatio = "16:9"
@@ -486,6 +489,55 @@ func extractChatVideoPrompt(messages []chatVideoMessage) (string, []string, erro
 		prompt = strings.TrimSpace(text)
 	}
 	return prompt, references, nil
+}
+
+var chatVideoAspectMappings = []struct {
+	key   string
+	ratio string
+}{
+	{key: "16:9", ratio: "16:9"},
+	{key: "16/9", ratio: "16:9"},
+	{key: "1280x720", ratio: "16:9"},
+	{key: "1920x1080", ratio: "16:9"},
+	{key: "\u6a2a\u5c4f", ratio: "16:9"},
+	{key: "\u5bbd\u5c4f", ratio: "16:9"},
+	{key: "9:16", ratio: "9:16"},
+	{key: "9/16", ratio: "9:16"},
+	{key: "720x1280", ratio: "9:16"},
+	{key: "1080x1920", ratio: "9:16"},
+	{key: "\u7ad6\u5c4f", ratio: "9:16"},
+	{key: "\u7eb5\u5c4f", ratio: "9:16"},
+	{key: "4:3", ratio: "4:3"},
+	{key: "4/3", ratio: "4:3"},
+	{key: "3:4", ratio: "3:4"},
+	{key: "3/4", ratio: "3:4"},
+	{key: "3:2", ratio: "3:2"},
+	{key: "3/2", ratio: "3:2"},
+	{key: "2:3", ratio: "2:3"},
+	{key: "2/3", ratio: "2:3"},
+	{key: "1:1", ratio: "1:1"},
+	{key: "1/1", ratio: "1:1"},
+	{key: "1024x1024", ratio: "1:1"},
+	{key: "\u6b63\u65b9\u5f62", ratio: "1:1"},
+}
+
+func parseConsoleVideoChatDuration(raw json.RawMessage) (int, error) {
+	if !hasJSONValue(raw) {
+		return 15, nil
+	}
+	return parseVideoDuration(raw)
+}
+
+func inferChatVideoAspectRatio(prompt string) (string, string) {
+	normalized := strings.ToLower(strings.TrimSpace(prompt))
+	normalized = strings.NewReplacer("\uFF1A", ":", "\u6BD4", ":", "\uFF0F", "/").Replace(normalized)
+	compact := strings.ReplaceAll(normalized, " ", "")
+	for _, item := range chatVideoAspectMappings {
+		if strings.HasSuffix(compact, item.key) {
+			return strings.TrimSpace(prompt), item.ratio
+		}
+	}
+	return strings.TrimSpace(prompt), ""
 }
 
 func videoAspectRatioFromChatSize(value string) string {
