@@ -1185,19 +1185,36 @@ func normalizeCompatibleVideoImages(request compatibleVideoRequest) ([]string, e
 }
 
 func aspectRatioFromVideoSize(value string) (string, error) {
-	parts := strings.Split(strings.ToLower(strings.TrimSpace(value)), "x")
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized = strings.NewReplacer("\uFF1A", ":", "\uFF0F", "/").Replace(normalized)
+	if strings.Contains(normalized, ":") || strings.Contains(normalized, "/") {
+		separator := ":"
+		if strings.Contains(normalized, "/") {
+			separator = "/"
+		}
+		parts := strings.Split(normalized, separator)
+		if len(parts) != 2 {
+			return "", errors.New("size must be a ratio such as 16:9 or 9/16")
+		}
+		width, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+		height, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err1 != nil || err2 != nil || width < 1 || height < 1 {
+			return "", errors.New("size must contain positive ratio numbers")
+		}
+		return strconv.Itoa(width) + ":" + strconv.Itoa(height), nil
+	}
+	parts := strings.Split(normalized, "x")
 	if len(parts) != 2 {
-		return "", errors.New("size 必须是 WIDTHxHEIGHT")
+		return "", errors.New("size must be WIDTHxHEIGHT or WIDTH:HEIGHT")
 	}
 	width, err1 := strconv.Atoi(parts[0])
 	height, err2 := strconv.Atoi(parts[1])
 	if err1 != nil || err2 != nil || width < 1 || height < 1 || width > 16384 || height > 16384 {
-		return "", errors.New("size 必须包含合理的正整数宽高")
+		return "", errors.New("size must contain reasonable positive dimensions")
 	}
 	divisor := gcd(width, height)
 	return strconv.Itoa(width/divisor) + ":" + strconv.Itoa(height/divisor), nil
 }
-
 func resolutionFromVideoSize(value string) string {
 	parts := strings.Split(strings.ToLower(strings.TrimSpace(value)), "x")
 	if len(parts) != 2 {

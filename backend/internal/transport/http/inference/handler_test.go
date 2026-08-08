@@ -1099,6 +1099,28 @@ func TestConsoleVideoChatDurationAndAspectMapping(t *testing.T) {
 	}
 }
 
+func TestCompatibleVideoRequestAcceptsNumericSecondsAndRatioSizes(t *testing.T) {
+	var request compatibleVideoRequest
+	if err := json.Unmarshal([]byte(`{"model":"grok-imagine-video","prompt":"test","seconds":15,"size":"1024x1024"}`), &request); err != nil {
+		t.Fatalf("numeric seconds request failed to decode: %v", err)
+	}
+	duration, err := parseVideoDuration(request.Seconds)
+	if err != nil || duration != 15 {
+		t.Fatalf("numeric seconds = %d, %v", duration, err)
+	}
+	for _, test := range []struct{ size, want string }{
+		{size: "1024x1024", want: "1:1"},
+		{size: "1:1", want: "1:1"},
+		{size: "9/16", want: "9:16"},
+		{size: "2：3", want: "2:3"},
+	} {
+		got, err := aspectRatioFromVideoSize(test.size)
+		if err != nil || got != test.want {
+			t.Fatalf("aspectRatioFromVideoSize(%q) = %q, %v", test.size, got, err)
+		}
+	}
+}
+
 func TestFormatConsoleVideoChatContent(t *testing.T) {
 	url := "https://grok.example.com/v1/media/videos/vid_demo"
 	got := formatConsoleVideoChatContent(url)
