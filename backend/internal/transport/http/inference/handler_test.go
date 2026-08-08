@@ -1088,6 +1088,8 @@ func TestConsoleVideoChatDurationAndAspectMapping(t *testing.T) {
 	for _, test := range []struct{ prompt, wantPrompt, wantRatio string }{
 		{prompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE 9:16", wantPrompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE 9:16", wantRatio: "9:16"},
 		{prompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE 3\u6BD4\u0034", wantPrompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE 3\u6BD4\u0034", wantRatio: "3:4"},
+		{prompt: "\u4E00\u53EA\u9738\u738B\u9F99\u98DE\u5230\u592A\u7A7A 3:4", wantPrompt: "\u4E00\u53EA\u9738\u738B\u9F99\u98DE\u5230\u592A\u7A7A 3:4", wantRatio: "3:4"},
+		{prompt: "\u4E00\u53EA\u9738\u738B\u9F99\u98DE\u5230\u592A\u7A7A\n3\uFF1A4\u3002", wantPrompt: "\u4E00\u53EA\u9738\u738B\u9F99\u98DE\u5230\u592A\u7A7A\n3\uFF1A4\u3002", wantRatio: "3:4"},
 		{prompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE 2\uFF1A3", wantPrompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE 2\uFF1A3", wantRatio: "2:3"},
 		{prompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE \u7AD6\u5C4F", wantPrompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE \u7AD6\u5C4F", wantRatio: "9:16"},
 		{prompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE", wantPrompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE", wantRatio: ""},

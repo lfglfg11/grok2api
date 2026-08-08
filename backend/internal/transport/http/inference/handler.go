@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	clientkeyapp "github.com/chenyme/grok2api/backend/internal/application/clientkey"
@@ -531,7 +532,13 @@ func parseConsoleVideoChatDuration(raw json.RawMessage) (int, error) {
 func inferChatVideoAspectRatio(prompt string) (string, string) {
 	normalized := strings.ToLower(strings.TrimSpace(prompt))
 	normalized = strings.NewReplacer("\uFF1A", ":", "\u6BD4", ":", "\uFF0F", "/").Replace(normalized)
-	compact := strings.ReplaceAll(normalized, " ", "")
+	compact := strings.Map(func(value rune) rune {
+		if unicode.IsSpace(value) {
+			return -1
+		}
+		return value
+	}, normalized)
+	compact = strings.TrimRight(compact, "。！!，,；;、")
 	for _, item := range chatVideoAspectMappings {
 		if strings.HasSuffix(compact, item.key) {
 			return strings.TrimSpace(prompt), item.ratio
