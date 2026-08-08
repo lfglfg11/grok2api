@@ -1078,6 +1078,17 @@ func TestCompatibleVideoResponseStatusMapping(t *testing.T) {
 	}
 }
 
+func TestResolveConsoleVideoChatAspectRatioLeavesImageAspectUnspecified(t *testing.T) {
+	if prompt, ratio := resolveConsoleVideoChatAspectRatio("", "a cat", 1); prompt != "a cat" || ratio != "" {
+		t.Fatalf("image-to-video aspect = %q, %q", prompt, ratio)
+	}
+	if prompt, ratio := resolveConsoleVideoChatAspectRatio("", "a cat", 0); prompt != "a cat" || ratio != "16:9" {
+		t.Fatalf("text-to-video aspect = %q, %q", prompt, ratio)
+	}
+	if _, ratio := resolveConsoleVideoChatAspectRatio("9:16", "a cat", 1); ratio != "9:16" {
+		t.Fatalf("explicit image-to-video aspect = %q", ratio)
+	}
+}
 func TestConsoleVideoChatDurationAndAspectMapping(t *testing.T) {
 	if got, err := parseConsoleVideoChatDuration(nil); err != nil || got != 15 {
 		t.Fatalf("default chat duration = %d, %v", got, err)
