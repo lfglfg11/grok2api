@@ -1078,6 +1078,15 @@ func TestCompatibleVideoResponseStatusMapping(t *testing.T) {
 	}
 }
 
+func TestFormatConsoleVideoChatContent(t *testing.T) {
+	url := "https://grok.example.com/v1/media/videos/vid_demo"
+	got := formatConsoleVideoChatContent(url)
+	want := "<video controls preload=\"metadata\" src=\"https://grok.example.com/v1/media/videos/vid_demo\"></video>\n\n[Download Video](https://grok.example.com/v1/media/videos/vid_demo)"
+	if got != want {
+		t.Fatalf("formatConsoleVideoChatContent() = %q, want %q", got, want)
+	}
+}
+
 func TestCompletedVideoPublicURLRequiresLocalAsset(t *testing.T) {
 	handler := NewHandler(nil, nil, 1<<20, "https://grok.example.com/")
 	job := mediadomain.Job{Status: mediadomain.StatusCompleted, ResultAssetID: "vid_abcdefghijklmnopqrstuvwxyz012345"}

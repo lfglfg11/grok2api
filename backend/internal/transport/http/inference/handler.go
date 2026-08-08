@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"math"
 	"mime"
@@ -438,7 +439,7 @@ func (h *Handler) createConsoleVideoChat(c *gin.Context, body []byte, request ch
 		writeOpenAIError(c, http.StatusBadGateway, "video_result_unavailable", err.Error())
 		return true
 	}
-	writeConsoleVideoChatResult(c, request.Model, publicURL)
+	writeConsoleVideoChatResult(c, request.Model, formatConsoleVideoChatContent(publicURL))
 	return true
 }
 
@@ -556,7 +557,7 @@ func (h *Handler) streamConsoleVideoChat(c *gin.Context, model, jobID string, cl
 				writeConsoleVideoChatError(c, "video_result_unavailable", resultErr.Error())
 				return
 			}
-			if !writeConsoleVideoChatChunk(c, responseID, model, created, gin.H{"content": publicURL}, nil) {
+			if !writeConsoleVideoChatChunk(c, responseID, model, created, gin.H{"content": formatConsoleVideoChatContent(publicURL)}, nil) {
 				return
 			}
 			if !writeConsoleVideoChatChunk(c, responseID, model, created, gin.H{}, "stop") {
@@ -595,6 +596,11 @@ func videoChatErrorMessage(job mediadomain.Job) string {
 		return value
 	}
 	return "video generation failed"
+}
+
+func formatConsoleVideoChatContent(publicURL string) string {
+	escapedURL := html.EscapeString(publicURL)
+	return "<video controls preload=\"metadata\" src=\"" + escapedURL + "\"></video>\n\n[Download Video](" + publicURL + ")"
 }
 
 func writeConsoleVideoChatResult(c *gin.Context, model, content string) {
