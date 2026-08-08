@@ -1079,7 +1079,7 @@ func TestCompatibleVideoResponseStatusMapping(t *testing.T) {
 }
 
 func TestResolveConsoleVideoChatAspectRatioLeavesImageAspectUnspecified(t *testing.T) {
-	if prompt, ratio := resolveConsoleVideoChatAspectRatio("", "a cat", 1); prompt != "a cat" || ratio != "auto" {
+	if prompt, ratio := resolveConsoleVideoChatAspectRatio("", "a cat", 1); prompt != "a cat" || ratio != "16:9" {
 		t.Fatalf("image-to-video default aspect = %q, %q", prompt, ratio)
 	}
 	if prompt, ratio := resolveConsoleVideoChatAspectRatio("", "a cat", 0); prompt != "a cat" || ratio != "16:9" {
