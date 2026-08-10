@@ -71,6 +71,18 @@ type SwaggerVideoGenerationRequest struct {
 	Resolution  string `json:"resolution,omitempty" example:"720p"`
 }
 
+// SwaggerCompatibleVideoRequest describes the Sora-compatible asynchronous video request.
+type SwaggerCompatibleVideoRequest struct {
+	Model           string   `json:"model" example:"grok-imagine-video-1.5-console"`
+	Prompt          string   `json:"prompt" example:"A cinematic tracking shot in natural light"`
+	Duration        int      `json:"duration" example:"15"`
+	AspectRatio     string   `json:"aspect_ratio,omitempty" example:"16:9"`
+	Resolution      string   `json:"resolution,omitempty" example:"720p"`
+	Image           string   `json:"image,omitempty" example:"https://example.com/ref.png"`
+	Images          []string `json:"images,omitempty" example:"https://example.com/ref-1.png,https://example.com/ref-2.png"`
+	ReferenceImages []string `json:"reference_images,omitempty" example:"https://example.com/ref-1.png,https://example.com/ref-2.png"`
+}
+
 // swaggerHealth godoc
 // @Summary 存活检查
 // @Tags System
@@ -216,6 +228,19 @@ func swaggerGetImage() {}
 // @Failure 400 {object} map[string]any
 // @Router /v1/videos/generations [post]
 func swaggerGenerateVideo() {}
+
+// swaggerCreateCompatibleVideo godoc
+// @Summary Create a Sora-compatible asynchronous video task
+// @Description Accepts reference_images as an array containing one or more image URLs. The legacy image and images fields remain supported.
+// @Tags Videos
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param request body SwaggerCompatibleVideoRequest true "Request"
+// @Success 200 {object} map[string]any
+// @Failure 400 {object} map[string]any
+// @Router /v1/videos [post]
+func swaggerCreateCompatibleVideo() {}
 
 // swaggerGetVideo godoc
 // @Summary 查询异步视频任务

@@ -110,6 +110,29 @@ func TestVideoGenerationUsesOfficialXAIEndpointsAndFields(t *testing.T) {
 	if unsupportedRecorder.Code != http.StatusUnauthorized {
 		t.Fatalf("unsupported video endpoint status=%d", unsupportedRecorder.Code)
 	}
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{
+			name: "single reference image",
+			body: `{"model":"grok-imagine-video-1.5-console","prompt":"test","duration":15,"aspect_ratio":"16:9","resolution":"720p","reference_images":["https://example.com/ref-1.png"]}`,
+		},
+		{
+			name: "multiple reference images",
+			body: `{"model":"grok-imagine-video-1.5-console","prompt":"test","reference_images":["https://example.com/ref-1.png","https://example.com/ref-2.png","https://example.com/ref-3.png"]}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(test.body))
+			request.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusUnauthorized {
+				t.Fatalf("reference_images request status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+		})
+	}
 	contentRecorder := httptest.NewRecorder()
 	router.ServeHTTP(contentRecorder, httptest.NewRequest(http.MethodGet, "/v1/videos/request_1/content", nil))
 	if contentRecorder.Code != http.StatusUnauthorized {
@@ -1062,6 +1085,16 @@ func TestCompatibleVideoImagesAndDuration(t *testing.T) {
 	references, err = normalizeCompatibleVideoImages(request)
 	if err != nil || len(references) != 1 || references[0] != "fallback" {
 		t.Fatalf("input reference = %#v, err=%v", references, err)
+	}
+	request = compatibleVideoRequest{ReferenceImages: []string{"ref-one"}}
+	references, err = normalizeCompatibleVideoImages(request)
+	if err != nil || len(references) != 1 || references[0] != "ref-one" {
+		t.Fatalf("single reference_images = %#v, err=%v", references, err)
+	}
+	request = compatibleVideoRequest{ReferenceImages: []string{"ref-one", "ref-two", "ref-three"}}
+	references, err = normalizeCompatibleVideoImages(request)
+	if err != nil || len(references) != 3 || references[0] != "ref-one" || references[2] != "ref-three" {
+		t.Fatalf("multiple reference_images = %#v, err=%v", references, err)
 	}
 	secondsValue, err := parseVideoDuration(json.RawMessage(`"8"`))
 	if err != nil || secondsValue != 8 {

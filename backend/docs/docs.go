@@ -497,6 +497,53 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/videos": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Accepts reference_images as an array containing one or more image URLs. The legacy image and images fields remain supported.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Videos"
+                ],
+                "summary": "Create a Sora-compatible asynchronous video task",
+                "parameters": [
+                    {
+                        "description": "Request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/httpserver.SwaggerCompatibleVideoRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/v1/videos/generations": {
             "post": {
                 "security": [
@@ -604,6 +651,55 @@ const docTemplate = `{
                 "stream": {
                     "type": "boolean",
                     "example": false
+                }
+            }
+        },
+        "httpserver.SwaggerCompatibleVideoRequest": {
+            "type": "object",
+            "properties": {
+                "aspect_ratio": {
+                    "type": "string",
+                    "example": "16:9"
+                },
+                "duration": {
+                    "type": "integer",
+                    "example": 15
+                },
+                "image": {
+                    "type": "string",
+                    "example": "https://example.com/ref.png"
+                },
+                "images": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "https://example.com/ref-1.png",
+                        "https://example.com/ref-2.png"
+                    ]
+                },
+                "model": {
+                    "type": "string",
+                    "example": "grok-imagine-video-1.5-console"
+                },
+                "prompt": {
+                    "type": "string",
+                    "example": "A cinematic tracking shot in natural light"
+                },
+                "reference_images": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "https://example.com/ref-1.png",
+                        "https://example.com/ref-2.png"
+                    ]
+                },
+                "resolution": {
+                    "type": "string",
+                    "example": "720p"
                 }
             }
         },

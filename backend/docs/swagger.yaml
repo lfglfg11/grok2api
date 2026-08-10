@@ -13,6 +13,41 @@ definitions:
         example: false
         type: boolean
     type: object
+  httpserver.SwaggerCompatibleVideoRequest:
+    properties:
+      aspect_ratio:
+        example: "16:9"
+        type: string
+      duration:
+        example: 15
+        type: integer
+      image:
+        example: https://example.com/ref.png
+        type: string
+      images:
+        example:
+        - https://example.com/ref-1.png
+        - https://example.com/ref-2.png
+        items:
+          type: string
+        type: array
+      model:
+        example: grok-imagine-video-1.5-console
+        type: string
+      prompt:
+        example: A cinematic tracking shot in natural light
+        type: string
+      reference_images:
+        example:
+        - https://example.com/ref-1.png
+        - https://example.com/ref-2.png
+        items:
+          type: string
+        type: array
+      resolution:
+        example: 720p
+        type: string
+    type: object
   httpserver.SwaggerImageEditRequest:
     properties:
       aspect_ratio:
@@ -449,6 +484,37 @@ paths:
       summary: 压缩 Response 上下文
       tags:
       - Responses
+  /v1/videos:
+    post:
+      consumes:
+      - application/json
+      description: Accepts reference_images as an array containing one or more image
+        URLs. The legacy image and images fields remain supported.
+      parameters:
+      - description: Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httpserver.SwaggerCompatibleVideoRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a Sora-compatible asynchronous video task
+      tags:
+      - Videos
   /v1/videos/{request_id}:
     get:
       parameters:
