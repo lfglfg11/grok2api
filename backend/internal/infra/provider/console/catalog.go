@@ -37,6 +37,10 @@ var mediaCatalog = []struct {
 }{
 	{PublicID: "grok-imagine-image-quality", UpstreamModel: "grok-imagine-image-quality", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
 	{PublicID: "grok-imagine-image", UpstreamModel: "grok-imagine-image", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
+	// 2K aliases retain the same upstream model and capabilities. The gateway
+	// forces their resolution before dispatching the request.
+	{PublicID: "grok-imagine-image-quality-2k", UpstreamModel: "grok-imagine-image-quality", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
+	{PublicID: "grok-imagine-image-2k", UpstreamModel: "grok-imagine-image", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
 	{PublicID: "grok-imagine-video-1.5-console", UpstreamModel: "grok-imagine-video", Capabilities: []modeldomain.Capability{modeldomain.CapabilityVideo}},
 }
 

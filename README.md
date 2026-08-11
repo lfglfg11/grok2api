@@ -276,6 +276,8 @@ Console uses the catalog built into the current release. Conversation forwarding
 | `grok-build-0.1` | Conversation | Chat Completions, Responses, Messages |
 | `grok-imagine-image` | Image, Image Edit | Images Generations, Images Edits |
 | `grok-imagine-image-quality` | Image, Image Edit | Images Generations, Images Edits |
+| `grok-imagine-image-2k` | Image, Image Edit | Always uses 2K resolution |
+| `grok-imagine-image-quality-2k` | Image, Image Edit | Always uses 2K resolution |
 | `grok-imagine-video` | Video | Videos |
 
 Generation and editing capabilities for the same Console image model are grouped into one logical model row; no separate `-edit` model copy is required.

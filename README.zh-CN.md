@@ -277,6 +277,8 @@ Console 使用当前版本内置目录。对话为无状态转发；图片和视
 | `grok-build-0.1` | 对话 | Chat Completions、Responses、Messages |
 | `grok-imagine-image` | 图像、图像编辑 | Images Generations、Images Edits |
 | `grok-imagine-image-quality` | 图像、图像编辑 | Images Generations、Images Edits |
+| `grok-imagine-image-2k` | 图像、图像编辑 | 固定使用 2K 分辨率 |
+| `grok-imagine-image-quality-2k` | 图像、图像编辑 | 固定使用 2K 分辨率 |
 | `grok-imagine-video` | 视频 | Videos |
 
 同一个 Console 图片模型的生成与编辑能力会聚合展示为一条逻辑模型，不需要创建 `-edit` 模型副本。

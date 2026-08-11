@@ -814,7 +814,7 @@ func (s *Service) createResponseAt(ctx context.Context, input Input, path string
 	}
 	publicModel := modeldomain.ExternalPublicID(route.Provider, route.PublicID)
 	input.PublicModel = publicModel
-	if aliasEffort != "" {
+	if aliasEffort != "" || modeldomain.IsForced2KImageModel(publicModel) {
 		input.Body, err = rewriteAliasedModel(input.Body, publicModel, aliasEffort, operation)
 		if err != nil {
 			return nil, err
@@ -1514,6 +1514,14 @@ func rewriteAliasedModel(body []byte, publicModel, reasoningEffort string, opera
 		return nil, fmt.Errorf("解析兼容模型请求: %w", err)
 	}
 	payload["model"] = publicModel
+	if operation == audit.OperationChat && modeldomain.IsForced2KImageModel(publicModel) {
+		imageConfig, _ := payload["image_config"].(map[string]any)
+		if imageConfig == nil {
+			imageConfig = make(map[string]any)
+		}
+		imageConfig["resolution"] = "2k"
+		payload["image_config"] = imageConfig
+	}
 	if reasoningEffort != "" {
 		switch operation {
 		case audit.OperationChat:

@@ -41,17 +41,21 @@ func TestCatalogContainsAllConsoleModelsAndAliases(t *testing.T) {
 		capability modeldomain.Capability
 	}
 	expected := map[routeKey]string{
-		{publicID: "Console/grok-4.3", capability: modeldomain.CapabilityResponses}:                     "grok-4.3",
-		{publicID: "Console/grok-4.20-0309-reasoning", capability: modeldomain.CapabilityResponses}:     "grok-4.20-0309-reasoning",
-		{publicID: "Console/grok-4.20-0309-non-reasoning", capability: modeldomain.CapabilityResponses}: "grok-4.20-0309-non-reasoning",
-		{publicID: "Console/grok-4.20-multi-agent-0309", capability: modeldomain.CapabilityResponses}:   "grok-4.20-multi-agent-0309",
-		{publicID: "Console/grok-4.5", capability: modeldomain.CapabilityResponses}:                     "grok-4.5",
-		{publicID: "Console/grok-build-0.1", capability: modeldomain.CapabilityResponses}:               "grok-build-0.1",
-		{publicID: "Console/grok-imagine-image-quality", capability: modeldomain.CapabilityImage}:       "grok-imagine-image-quality",
-		{publicID: "Console/grok-imagine-image-quality", capability: modeldomain.CapabilityImageEdit}:   "grok-imagine-image-quality",
-		{publicID: "Console/grok-imagine-image", capability: modeldomain.CapabilityImage}:               "grok-imagine-image",
-		{publicID: "Console/grok-imagine-image", capability: modeldomain.CapabilityImageEdit}:           "grok-imagine-image",
-		{publicID: "Console/grok-imagine-video-1.5-console", capability: modeldomain.CapabilityVideo}:   "grok-imagine-video",
+		{publicID: "Console/grok-4.3", capability: modeldomain.CapabilityResponses}:                      "grok-4.3",
+		{publicID: "Console/grok-4.20-0309-reasoning", capability: modeldomain.CapabilityResponses}:      "grok-4.20-0309-reasoning",
+		{publicID: "Console/grok-4.20-0309-non-reasoning", capability: modeldomain.CapabilityResponses}:  "grok-4.20-0309-non-reasoning",
+		{publicID: "Console/grok-4.20-multi-agent-0309", capability: modeldomain.CapabilityResponses}:    "grok-4.20-multi-agent-0309",
+		{publicID: "Console/grok-4.5", capability: modeldomain.CapabilityResponses}:                      "grok-4.5",
+		{publicID: "Console/grok-build-0.1", capability: modeldomain.CapabilityResponses}:                "grok-build-0.1",
+		{publicID: "Console/grok-imagine-image-quality", capability: modeldomain.CapabilityImage}:        "grok-imagine-image-quality",
+		{publicID: "Console/grok-imagine-image-quality", capability: modeldomain.CapabilityImageEdit}:    "grok-imagine-image-quality",
+		{publicID: "Console/grok-imagine-image", capability: modeldomain.CapabilityImage}:                "grok-imagine-image",
+		{publicID: "Console/grok-imagine-image", capability: modeldomain.CapabilityImageEdit}:            "grok-imagine-image",
+		{publicID: "Console/grok-imagine-image-quality-2k", capability: modeldomain.CapabilityImage}:     "grok-imagine-image-quality",
+		{publicID: "Console/grok-imagine-image-quality-2k", capability: modeldomain.CapabilityImageEdit}: "grok-imagine-image-quality",
+		{publicID: "Console/grok-imagine-image-2k", capability: modeldomain.CapabilityImage}:             "grok-imagine-image",
+		{publicID: "Console/grok-imagine-image-2k", capability: modeldomain.CapabilityImageEdit}:         "grok-imagine-image",
+		{publicID: "Console/grok-imagine-video-1.5-console", capability: modeldomain.CapabilityVideo}:    "grok-imagine-video",
 	}
 	routes := Routes()
 	if len(routes) != len(expected) {

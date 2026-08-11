@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -49,6 +50,30 @@ func TestQueueAccountModelSyncDeduplicatesConcurrentETagRefresh(t *testing.T) {
 		t.Fatalf("concurrent sync calls = %d", calls)
 	}
 	close(resolver.release)
+}
+
+func TestRewriteAliasedModelForces2KImageConfig(t *testing.T) {
+	body, err := rewriteAliasedModel([]byte(`{
+		"model":"grok-imagine-image-2k",
+		"messages":[{"role":"user","content":"draw"}],
+		"image_config":{"resolution":"1k","n":2}
+	}`), "grok-imagine-image-2k", "", audit.OperationChat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Model       string `json:"model"`
+		ImageConfig struct {
+			Resolution string `json:"resolution"`
+			N          int    `json:"n"`
+		} `json:"image_config"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Model != "grok-imagine-image-2k" || payload.ImageConfig.Resolution != "2k" || payload.ImageConfig.N != 2 {
+		t.Fatalf("rewritten payload = %s", body)
+	}
 }
 
 type etagSyncResolver struct {

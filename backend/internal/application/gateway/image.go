@@ -53,6 +53,7 @@ type imageExecution func(context.Context, accountdomain.Provider, accountdomain.
 
 // GenerateImage 选择支持图片生成的路由和账号，并返回可统一审计的上游响应。
 func (s *Service) GenerateImage(ctx context.Context, input ImageGenerationInput) (*Result, error) {
+	input.Resolution = modeldomain.ApplyForcedImageResolution(input.PublicModel, input.Resolution)
 	return s.executeImage(ctx, input.RequestID, input.ClientKey, input.PublicModel, audit.OperationImage, modeldomain.CapabilityImage, func(providerValue accountdomain.Provider) bool {
 		_, ok := s.providers.ImageGeneration(providerValue)
 		return ok
@@ -71,6 +72,7 @@ func (s *Service) GenerateImage(ctx context.Context, input ImageGenerationInput)
 
 // EditImage 选择支持图片编辑的路由和账号，并返回可统一审计的上游响应。
 func (s *Service) EditImage(ctx context.Context, input ImageEditInput) (*Result, error) {
+	input.Resolution = modeldomain.ApplyForcedImageResolution(input.PublicModel, input.Resolution)
 	return s.executeImage(ctx, input.RequestID, input.ClientKey, input.PublicModel, audit.OperationImageEdit, modeldomain.CapabilityImageEdit, func(providerValue accountdomain.Provider) bool {
 		_, ok := s.providers.ImageEdit(providerValue)
 		return ok
