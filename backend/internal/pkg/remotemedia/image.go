@@ -1,0 +1,249 @@
+package remotemedia
+
+import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/netip"
+	"net/url"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/chenyme/grok2api/backend/internal/pkg/netguard"
+)
+
+const (
+	MaxImageBytes  = 20 << 20
+	fetchAttempts  = 3
+	fetchTimeout   = 20 * time.Second
+	resolveTimeout = 3 * time.Second
+	maxRedirects   = 5
+)
+
+var (
+	ErrImageTooLarge = errors.New("remote image exceeds size limit")
+	ErrFetchBlocked  = errors.New("remote image URL is not allowed")
+)
+
+type resolver interface {
+	LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error)
+}
+
+type target struct {
+	fetchURL   *url.URL
+	hostHeader string
+	serverName string
+}
+
+type statusError struct{ status int }
+
+func (e statusError) Error() string { return fmt.Sprintf("remote image returned HTTP %d", e.status) }
+
+// FetchImage downloads a public HTTP(S) image while pinning every validated
+// redirect target to prevent DNS rebinding and other SSRF bypasses.
+func FetchImage(ctx context.Context, rawURL string) ([]byte, error) {
+	return fetchImageWith(ctx, rawURL, fetchImageOnce)
+}
+
+func fetchImageWith(ctx context.Context, rawURL string, fetch func(context.Context, string) ([]byte, error)) ([]byte, error) {
+	var lastErr error
+	for attempt := 0; attempt < fetchAttempts; attempt++ {
+		data, err := fetch(ctx, rawURL)
+		if err == nil {
+			return data, nil
+		}
+		lastErr = err
+		if !retryable(err) || attempt+1 >= fetchAttempts {
+			break
+		}
+		if err := waitRetry(ctx, attempt); err != nil {
+			return nil, err
+		}
+	}
+	return nil, lastErr
+}
+
+func fetchImageOnce(ctx context.Context, rawURL string) ([]byte, error) {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || !validURL(parsed) {
+		return nil, ErrFetchBlocked
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	defer cancel()
+
+	for redirects := 0; ; redirects++ {
+		target, err := resolveTarget(fetchCtx, parsed, net.DefaultResolver)
+		if err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, target.fetchURL.String(), nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Host = target.hostHeader
+		req.Header.Set("Accept", "image/*")
+		req.Header.Set("User-Agent", "grok2api-media-importer/1.0")
+
+		client, transport := newClient(target)
+		resp, err := client.Do(req)
+		if err != nil {
+			transport.CloseIdleConnections()
+			if errors.Is(err, ErrFetchBlocked) {
+				return nil, ErrFetchBlocked
+			}
+			return nil, err
+		}
+		if isRedirect(resp.StatusCode) && resp.Header.Get("Location") != "" {
+			_ = resp.Body.Close()
+			transport.CloseIdleConnections()
+			if redirects >= maxRedirects {
+				return nil, errors.New("remote image has too many redirects")
+			}
+			next, err := parsed.Parse(resp.Header.Get("Location"))
+			if err != nil || !validURL(next) {
+				return nil, fmt.Errorf("invalid remote image redirect: %w", ErrFetchBlocked)
+			}
+			parsed = next
+			continue
+		}
+
+		data, readErr := readImage(resp)
+		transport.CloseIdleConnections()
+		return data, readErr
+	}
+}
+
+func retryable(err error) bool {
+	if errors.Is(err, ErrFetchBlocked) || errors.Is(err, ErrImageTooLarge) {
+		return false
+	}
+	var status statusError
+	if errors.As(err, &status) {
+		return status.status == http.StatusRequestTimeout || status.status == http.StatusTooEarly || status.status == http.StatusTooManyRequests || status.status >= 500
+	}
+	return true
+}
+
+func waitRetry(ctx context.Context, attempt int) error {
+	delays := [...]time.Duration{200 * time.Millisecond, 750 * time.Millisecond}
+	timer := time.NewTimer(delays[min(attempt, len(delays)-1)])
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func validURL(parsed *url.URL) bool {
+	if parsed == nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil {
+		return false
+	}
+	port := parsed.Port()
+	return port == "" || port == "80" || port == "443"
+}
+
+func resolveTarget(ctx context.Context, parsed *url.URL, resolver resolver) (*target, error) {
+	if !validURL(parsed) {
+		return nil, ErrFetchBlocked
+	}
+	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".internal") || strings.Contains(host, "%") {
+		return nil, ErrFetchBlocked
+	}
+
+	var addresses []netip.Addr
+	if address, err := netip.ParseAddr(host); err == nil {
+		addresses = []netip.Addr{address.Unmap()}
+	} else {
+		resolveCtx, cancel := context.WithTimeout(ctx, resolveTimeout)
+		defer cancel()
+		resolved, err := resolver.LookupNetIP(resolveCtx, "ip", host)
+		if err != nil {
+			return nil, fmt.Errorf("resolve remote image host: %w", err)
+		}
+		if len(resolved) == 0 {
+			return nil, errors.New("resolve remote image host: DNS returned no addresses")
+		}
+		for _, address := range resolved {
+			addresses = append(addresses, address.Unmap())
+		}
+	}
+	for _, address := range addresses {
+		if !netguard.IsPublicAddress(address) {
+			return nil, fmt.Errorf("remote image host resolved to non-public address %s: %w", address, ErrFetchBlocked)
+		}
+	}
+
+	port := parsed.Port()
+	if port == "" {
+		if parsed.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	fetchURL := *parsed
+	fetchURL.Host = net.JoinHostPort(addresses[0].String(), port)
+	fetchURL.Fragment = ""
+	return &target{fetchURL: &fetchURL, hostHeader: parsed.Host, serverName: host}, nil
+}
+
+func newClient(target *target) (*http.Client, *http.Transport) {
+	transport := &http.Transport{
+		Proxy:                  nil,
+		DialContext:            (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 10 * time.Second, Control: safeControl}).DialContext,
+		TLSClientConfig:        &tls.Config{MinVersion: tls.VersionTLS12, ServerName: target.serverName},
+		TLSHandshakeTimeout:    10 * time.Second,
+		ResponseHeaderTimeout:  15 * time.Second,
+		MaxResponseHeaderBytes: 1 << 20,
+		MaxIdleConns:           1,
+		MaxConnsPerHost:        1,
+		IdleConnTimeout:        30 * time.Second,
+		ForceAttemptHTTP2:      true,
+	}
+	return &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, transport
+}
+
+func safeControl(network, address string, _ syscall.RawConn) error {
+	if network != "tcp" && network != "tcp4" && network != "tcp6" {
+		return fmt.Errorf("unsupported network %q: %w", network, ErrFetchBlocked)
+	}
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("parse target address: %w", ErrFetchBlocked)
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil || !netguard.IsPublicAddress(ip.Unmap()) {
+		return fmt.Errorf("target is not a public address: %w", ErrFetchBlocked)
+	}
+	return nil
+}
+
+func isRedirect(status int) bool {
+	return status == http.StatusMovedPermanently || status == http.StatusFound || status == http.StatusSeeOther || status == http.StatusTemporaryRedirect || status == http.StatusPermanentRedirect
+}
+
+func readImage(resp *http.Response) ([]byte, error) {
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, statusError{status: resp.StatusCode}
+	}
+	if resp.ContentLength > MaxImageBytes {
+		return nil, ErrImageTooLarge
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, MaxImageBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > MaxImageBytes {
+		return nil, ErrImageTooLarge
+	}
+	return data, nil
+}

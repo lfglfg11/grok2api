@@ -1521,6 +1521,21 @@ func TestParseConsoleVideoStatusRejectsUnknownState(t *testing.T) {
 	}
 }
 
+func TestParseConsoleVideoStatusClassifiesInputDownloadFailure(t *testing.T) {
+	body := []byte(`{"status":"failed","error":{"code":"image_download_error","message":"Failed to download the provided image (image_download_error=image_download_interrupted)"}}`)
+	_, _, err := parseConsoleVideoStatus(body, nil)
+	if !errors.Is(err, provider.ErrVideoInputDownload) {
+		t.Fatalf("input download error=%v", err)
+	}
+}
+
+func TestConsoleMediaUpstreamErrorClassifiesInputDownloadFailure(t *testing.T) {
+	err := newConsoleMediaUpstreamError(http.StatusBadRequest, []byte(`{"error":{"code":"image_download_error","message":"Failed to download the provided image"}}`))
+	if !errors.Is(err, provider.ErrVideoInputDownload) {
+		t.Fatalf("synchronous input download error=%v", err)
+	}
+}
+
 func serveTestDPoPToken(t *testing.T, writer http.ResponseWriter, request *http.Request) bool {
 	t.Helper()
 	if request.URL.Path != "/v1/dpop/token" {

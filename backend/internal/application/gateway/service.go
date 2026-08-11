@@ -161,6 +161,7 @@ type routeResolver interface {
 type videoAssetStore interface {
 	SaveVideo(ctx context.Context, jobID, contentType string, body io.Reader) (mediadomain.Asset, error)
 	OpenVideo(ctx context.Context, id string) (mediadomain.Asset, io.ReadCloser, error)
+	ImportInputImageFromURL(ctx context.Context, rawURL string) (mediadomain.Asset, error)
 	OpenInputImage(ctx context.Context, id string) (mediadomain.Asset, io.ReadCloser, error)
 	ReleaseInputImages(ctx context.Context, references []string) error
 }

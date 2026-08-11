@@ -681,6 +681,9 @@ func parseConsoleVideoStatus(body []byte, progress func(int)) (provider.VideoRes
 		if message == "" {
 			message = strings.ToLower(strings.TrimSpace(payload.Status))
 		}
+		if isConsoleVideoInputDownloadError(payload.Error) {
+			return provider.VideoResult{}, false, fmt.Errorf("%w: Console 视频生成失败: %s", provider.ErrVideoInputDownload, message)
+		}
 		return provider.VideoResult{}, false, fmt.Errorf("Console 视频生成失败: %s", message)
 	case "pending", "processing", "in_progress", "queued":
 		return provider.VideoResult{}, false, nil
@@ -689,10 +692,23 @@ func parseConsoleVideoStatus(body []byte, progress func(int)) (provider.VideoRes
 	}
 }
 
+func isConsoleVideoInputDownloadError(value any) bool {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return false
+	}
+	lower := strings.ToLower(string(data))
+	return strings.Contains(lower, "image_download_error") ||
+		strings.Contains(lower, "image_download_interrupted") ||
+		strings.Contains(lower, "failed to download the provided image")
+}
+
 func newConsoleMediaUpstreamError(status int, body []byte) error {
 	message := ""
 	var payload map[string]any
+	inputDownloadFailed := false
 	if json.Unmarshal(body, &payload) == nil {
+		inputDownloadFailed = isConsoleVideoInputDownloadError(payload["error"])
 		message = safeConsoleMediaErrorValue(payload["error"])
 		if message == "" {
 			message = safeConsoleMediaErrorValue(payload["message"])
@@ -701,6 +717,9 @@ func newConsoleMediaUpstreamError(status int, body []byte) error {
 	summary := fmt.Sprintf("Console 媒体上游返回 %d", status)
 	if message != "" {
 		summary += ": " + message
+	}
+	if inputDownloadFailed {
+		return fmt.Errorf("%w: %s", provider.ErrVideoInputDownload, summary)
 	}
 	return &consoleMediaUpstreamError{status: status, summary: summary}
 }

@@ -201,6 +201,52 @@ func TestResolveVideoInputFileReferenceToDataURI(t *testing.T) {
 	}
 }
 
+func TestCompatibleVideoFallsBackToMaterializedInputForThreeAttempts(t *testing.T) {
+	const remoteURL = "https://images.example.com/reference.png"
+	store := &videoAssetStoreStub{imported: map[string][]byte{remoteURL: []byte("png-bytes")}}
+	service := &Service{mediaAssets: store}
+	service.ConfigureMedia(nil, 4)
+	adapter := &videoFallbackAdapter{inputFailures: 3}
+	request := provider.VideoRequest{ReferenceURLs: []string{remoteURL}}
+
+	result, err := service.generateVideoWithMaterializationFallback(context.Background(), adapter, request, []string{remoteURL}, "video_sora_test", account.ProviderConsole)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.URL != "https://vidgen.x.ai/result.mp4" || adapter.calls != 4 {
+		t.Fatalf("result=%#v calls=%d", result, adapter.calls)
+	}
+	if len(adapter.references) != 4 || adapter.references[0][0] != remoteURL {
+		t.Fatalf("references=%#v", adapter.references)
+	}
+	wantPrefix := "data:image/png;base64,"
+	for attempt := 1; attempt < len(adapter.references); attempt++ {
+		if !strings.HasPrefix(adapter.references[attempt][0], wantPrefix) {
+			t.Fatalf("fallback attempt %d was not materialized: %#v", attempt, adapter.references[attempt])
+		}
+	}
+	if store.importCalls != 1 || store.releaseCalls != 1 {
+		t.Fatalf("imports=%d releases=%d", store.importCalls, store.releaseCalls)
+	}
+}
+
+type videoFallbackAdapter struct {
+	inputFailures int
+	calls         int
+	references    [][]string
+}
+
+func (*videoFallbackAdapter) Provider() account.Provider { return account.ProviderConsole }
+
+func (a *videoFallbackAdapter) GenerateVideo(_ context.Context, request provider.VideoRequest) (provider.VideoResult, error) {
+	a.calls++
+	a.references = append(a.references, append([]string(nil), request.ReferenceURLs...))
+	if a.calls <= a.inputFailures {
+		return provider.VideoResult{}, fmt.Errorf("%w: interrupted", provider.ErrVideoInputDownload)
+	}
+	return provider.VideoResult{URL: "https://vidgen.x.ai/result.mp4", ContentType: "video/mp4"}, nil
+}
+
 func TestVideoInputMaterializationHasIndependentBulkhead(t *testing.T) {
 	service := &Service{}
 	service.ConfigureMedia(nil, 64)
@@ -253,10 +299,13 @@ func (a *videoPersistAdapter) DownloadVideo(_ context.Context, credential accoun
 }
 
 type videoAssetStoreStub struct {
-	saveCalls int
-	inputID   string
-	inputData []byte
-	inputSize int64
+	saveCalls    int
+	inputID      string
+	inputData    []byte
+	inputSize    int64
+	imported     map[string][]byte
+	importCalls  int
+	releaseCalls int
 }
 
 func (s *videoAssetStoreStub) SaveVideo(_ context.Context, jobID, contentType string, body io.Reader) (media.Asset, error) {
@@ -278,6 +327,17 @@ func (*videoAssetStoreStub) OpenVideo(context.Context, string) (media.Asset, io.
 	return media.Asset{}, nil, errors.New("not implemented")
 }
 
+func (s *videoAssetStoreStub) ImportInputImageFromURL(_ context.Context, rawURL string) (media.Asset, error) {
+	s.importCalls++
+	data, ok := s.imported[rawURL]
+	if !ok {
+		return media.Asset{}, errors.New("remote input not configured")
+	}
+	s.inputID = "input_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	s.inputData = data
+	return media.Asset{ID: s.inputID, Kind: "image", MIMEType: "image/png", SizeBytes: int64(len(data))}, nil
+}
+
 func (s *videoAssetStoreStub) OpenInputImage(_ context.Context, id string) (media.Asset, io.ReadCloser, error) {
 	if id != s.inputID || len(s.inputData) == 0 {
 		return media.Asset{}, nil, errors.New("not implemented")
@@ -289,7 +349,10 @@ func (s *videoAssetStoreStub) OpenInputImage(_ context.Context, id string) (medi
 	return media.Asset{ID: id, Kind: "image", MIMEType: "image/png", SizeBytes: size}, io.NopCloser(bytes.NewReader(s.inputData)), nil
 }
 
-func (*videoAssetStoreStub) ReleaseInputImages(context.Context, []string) error { return nil }
+func (s *videoAssetStoreStub) ReleaseInputImages(context.Context, []string) error {
+	s.releaseCalls++
+	return nil
+}
 
 type durableVideoAuditRecorder struct {
 	failures int

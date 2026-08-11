@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -25,10 +26,11 @@ import (
 )
 
 const (
-	videoJobTimeout          = 2 * time.Hour
-	videoJobLease            = videoJobTimeout + 5*time.Minute
-	videoJobRecoveryInterval = 30 * time.Second
-	videoOutputAttempts      = 3
+	videoJobTimeout           = 2 * time.Hour
+	videoJobLease             = videoJobTimeout + 5*time.Minute
+	videoJobRecoveryInterval  = 30 * time.Second
+	videoOutputAttempts       = 3
+	videoMaterializedAttempts = 3
 	// Base64 物化会同时持有原图和编码后字符串，单独限流避免高 mediaConcurrency 放大内存峰值。
 	videoInputMaterializeConcurrency = 4
 	videoInputJSONBaseBytes          = int64(len(`{"image_urls":[]}`))
@@ -344,7 +346,7 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 		return
 	}
 	lastProgress := job.Progress
-	result, err := adapter.GenerateVideo(ctx, provider.VideoRequest{
+	videoRequest := provider.VideoRequest{
 		Credential: lease.Credential, Billing: lease.Billing, JobID: job.ID, Prompt: job.Prompt, Duration: job.Seconds, AspectRatio: job.Size, Resolution: job.Quality,
 		ReferenceURLs: referenceURLs,
 		Progress: func(value int) {
@@ -360,7 +362,8 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 			_ = s.mediaJobs.UpdateMediaJob(updateCtx, job)
 			updateCancel()
 		},
-	})
+	}
+	result, err := s.generateVideoWithMaterializationFallback(ctx, adapter, videoRequest, inputReferences, job.ID, route.Provider)
 	// Provider 已消费请求体，尽早释放 Base64 物化名额和大字符串。
 	referenceURLs = nil
 	releaseInputSlot()
@@ -458,15 +461,37 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 	s.releaseVideoInputs(job)
 }
 
-func (s *Service) acquireVideoInputSlot(ctx context.Context, references []string) (func(), error) {
-	hasLocalInput := false
-	for _, reference := range references {
-		if strings.HasPrefix(reference, media.InputReferencePrefix) {
-			hasLocalInput = true
+func (s *Service) generateVideoWithMaterializationFallback(ctx context.Context, adapter provider.VideoAdapter, request provider.VideoRequest, inputReferences []string, jobID string, providerValue account.Provider) (provider.VideoResult, error) {
+	result, err := adapter.GenerateVideo(ctx, request)
+	if err == nil || !errors.Is(err, provider.ErrVideoInputDownload) || !strings.HasPrefix(jobID, "video_sora_") || !hasRemoteVideoReference(request.ReferenceURLs) {
+		return result, err
+	}
+	if s.logger != nil {
+		s.logger.Warn("video_input_materialization_fallback", "job_id", jobID, "provider", providerValue, "error", err)
+	}
+	materialized, cleanup, materializeErr := s.materializeRemoteVideoReferences(ctx, request.ReferenceURLs, hasLocalVideoReference(inputReferences))
+	if materializeErr != nil {
+		return provider.VideoResult{}, fmt.Errorf("视频参考图物化失败: %w", materializeErr)
+	}
+	request.ReferenceURLs = materialized
+	for attempt := 0; attempt < videoMaterializedAttempts; attempt++ {
+		result, err = adapter.GenerateVideo(ctx, request)
+		if err == nil || !errors.Is(err, provider.ErrVideoInputDownload) || attempt+1 >= videoMaterializedAttempts {
+			break
+		}
+		if waitErr := waitVideoMaterializedRetry(ctx, attempt); waitErr != nil {
+			err = waitErr
 			break
 		}
 	}
-	if !hasLocalInput || s.mediaInputSlots == nil {
+	request.ReferenceURLs = nil
+	materialized = nil
+	cleanup()
+	return result, err
+}
+
+func (s *Service) acquireVideoInputSlot(ctx context.Context, references []string) (func(), error) {
+	if !hasLocalVideoReference(references) || s.mediaInputSlots == nil {
 		return func() {}, nil
 	}
 	select {
@@ -475,6 +500,104 @@ func (s *Service) acquireVideoInputSlot(ctx context.Context, references []string
 		return func() { once.Do(func() { <-s.mediaInputSlots }) }, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	}
+}
+
+func hasLocalVideoReference(references []string) bool {
+	for _, reference := range references {
+		if strings.HasPrefix(reference, media.InputReferencePrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasRemoteVideoReference(references []string) bool {
+	for _, reference := range references {
+		parsed, err := url.Parse(strings.TrimSpace(reference))
+		if err == nil && parsed.Hostname() != "" && (parsed.Scheme == "http" || parsed.Scheme == "https") {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) materializeRemoteVideoReferences(ctx context.Context, references []string, slotHeld bool) ([]string, func(), error) {
+	if s.mediaAssets == nil {
+		return nil, func() {}, ErrVideoInputUnavailable
+	}
+	releaseSlot := func() {}
+	if !slotHeld {
+		var err error
+		releaseSlot, err = s.acquireVideoMaterializationSlot(ctx)
+		if err != nil {
+			return nil, func() {}, err
+		}
+	}
+	staged := make([]string, 0, len(references))
+	cleanup := func() {
+		releaseSlot()
+		if len(staged) == 0 {
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.mediaAssets.ReleaseInputImages(cleanupCtx, staged); err != nil && s.logger != nil {
+			s.logger.Warn("video_materialized_input_release_failed", "error", err)
+		}
+	}
+	internalReferences := make([]string, 0, len(references))
+	imported := make(map[string]string, len(references))
+	for _, reference := range references {
+		parsed, err := url.Parse(strings.TrimSpace(reference))
+		if err != nil || parsed.Hostname() == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			internalReferences = append(internalReferences, reference)
+			continue
+		}
+		if internal, ok := imported[reference]; ok {
+			internalReferences = append(internalReferences, internal)
+			continue
+		}
+		asset, err := s.mediaAssets.ImportInputImageFromURL(ctx, reference)
+		if err != nil {
+			cleanup()
+			return nil, func() {}, err
+		}
+		internal := VideoInputFileReference(asset.ID)
+		imported[reference] = internal
+		staged = append(staged, internal)
+		internalReferences = append(internalReferences, internal)
+	}
+	resolved, err := s.resolveVideoInputReferences(ctx, internalReferences)
+	if err != nil {
+		cleanup()
+		return nil, func() {}, err
+	}
+	return resolved, cleanup, nil
+}
+
+func (s *Service) acquireVideoMaterializationSlot(ctx context.Context) (func(), error) {
+	if s.mediaInputSlots == nil {
+		return func() {}, nil
+	}
+	select {
+	case s.mediaInputSlots <- struct{}{}:
+		var once sync.Once
+		return func() { once.Do(func() { <-s.mediaInputSlots }) }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func waitVideoMaterializedRetry(ctx context.Context, attempt int) error {
+	delays := [...]time.Duration{200 * time.Millisecond, 750 * time.Millisecond}
+	timer := time.NewTimer(delays[min(attempt, len(delays)-1)])
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	mediadomain "github.com/chenyme/grok2api/backend/internal/domain/media"
+	"github.com/chenyme/grok2api/backend/internal/pkg/remotemedia"
 	"github.com/chenyme/grok2api/backend/internal/repository"
 )
 
@@ -30,6 +31,8 @@ var (
 	ErrMediaJobsUnavailable  = errors.New("视频任务仓储未配置")
 	ErrInputImageNotFound    = errors.New("临时输入图片不存在或已过期")
 	ErrMediaCapacity         = errors.New("媒体存储容量不足")
+	ErrInputImageTooLarge    = remotemedia.ErrImageTooLarge
+	ErrInputImageURLBlocked  = remotemedia.ErrFetchBlocked
 )
 
 // InputImageTTL 是临时输入的硬保留上限；无论任务状态如何，超过后都可回收。
@@ -134,6 +137,16 @@ func (s *Service) SaveInputImage(ctx context.Context, data []byte) (mediadomain.
 	}
 	expiresAt := time.Now().UTC().Add(InputImageTTL)
 	return s.saveImage(ctx, data, &expiresAt, mediadomain.InputAssetIDPrefix)
+}
+
+// ImportInputImageFromURL securely downloads a remote image into the hidden,
+// expiring input area used by asynchronous video jobs.
+func (s *Service) ImportInputImageFromURL(ctx context.Context, rawURL string) (mediadomain.Asset, error) {
+	data, err := remotemedia.FetchImage(ctx, rawURL)
+	if err != nil {
+		return mediadomain.Asset{}, err
+	}
+	return s.SaveInputImage(ctx, data)
 }
 
 func (s *Service) saveImage(ctx context.Context, data []byte, expiresAt *time.Time, idPrefix string) (mediadomain.Asset, error) {
