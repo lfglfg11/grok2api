@@ -533,13 +533,30 @@ func inferChatVideoAspectRatio(prompt string) (string, string) {
 		}
 		return value
 	}, normalized)
-	compact = strings.TrimRight(compact, "。！!，,；;、")
+	matchedAt, ratio := -1, ""
 	for _, item := range chatVideoAspectMappings {
-		if strings.HasSuffix(compact, item.key) {
-			return strings.TrimSpace(prompt), item.ratio
+		if index := lastChatVideoAspectIndex(compact, item.key); index > matchedAt {
+			matchedAt, ratio = index, item.ratio
 		}
 	}
-	return strings.TrimSpace(prompt), ""
+	return strings.TrimSpace(prompt), ratio
+}
+
+func lastChatVideoAspectIndex(prompt, key string) int {
+	for end := len(prompt); end > 0; {
+		index := strings.LastIndex(prompt[:end], key)
+		if index < 0 {
+			return -1
+		}
+		beforeIsDigit := index > 0 && prompt[index-1] >= '0' && prompt[index-1] <= '9'
+		after := index + len(key)
+		afterIsDigit := after < len(prompt) && prompt[after] >= '0' && prompt[after] <= '9'
+		if !beforeIsDigit && !afterIsDigit {
+			return index
+		}
+		end = index
+	}
+	return -1
 }
 
 func resolveConsoleVideoChatAspectRatio(aspectRatio, prompt string, referenceCount int) (string, string) {

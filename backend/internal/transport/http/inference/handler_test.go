@@ -1131,11 +1131,16 @@ func TestConsoleVideoChatDurationAndAspectMapping(t *testing.T) {
 	}
 	for _, test := range []struct{ prompt, wantPrompt, wantRatio string }{
 		{prompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE 9:16", wantPrompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE 9:16", wantRatio: "9:16"},
+		{prompt: "\u4E00\u53EA\u98DE\u5929\u732B9:16 \uFF08\u84DD\u8272\uFF09", wantPrompt: "\u4E00\u53EA\u98DE\u5929\u732B9:16 \uFF08\u84DD\u8272\uFF09", wantRatio: "9:16"},
+		{prompt: "\u4E00\u53EA\u5C0F\u72D79\uFF1A16\u9ED1\u767D", wantPrompt: "\u4E00\u53EA\u5C0F\u72D79\uFF1A16\u9ED1\u767D", wantRatio: "9:16"},
+		{prompt: "\u4E00\u53EA\u5C0F\u82B1\u732A\uFF0C2:3 \u7070\u8272\u7684", wantPrompt: "\u4E00\u53EA\u5C0F\u82B1\u732A\uFF0C2:3 \u7070\u8272\u7684", wantRatio: "2:3"},
 		{prompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE 3\u6BD4\u0034", wantPrompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE 3\u6BD4\u0034", wantRatio: "3:4"},
 		{prompt: "\u4E00\u53EA\u9738\u738B\u9F99\u98DE\u5230\u592A\u7A7A 3:4", wantPrompt: "\u4E00\u53EA\u9738\u738B\u9F99\u98DE\u5230\u592A\u7A7A 3:4", wantRatio: "3:4"},
 		{prompt: "\u4E00\u53EA\u9738\u738B\u9F99\u98DE\u5230\u592A\u7A7A\n3\uFF1A4\u3002", wantPrompt: "\u4E00\u53EA\u9738\u738B\u9F99\u98DE\u5230\u592A\u7A7A\n3\uFF1A4\u3002", wantRatio: "3:4"},
 		{prompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE 2\uFF1A3", wantPrompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE 2\uFF1A3", wantRatio: "2:3"},
 		{prompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE \u7AD6\u5C4F", wantPrompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE \u7AD6\u5C4F", wantRatio: "9:16"},
+		{prompt: "\u5148\u6309 16:9 \u6784\u56FE\uFF0C\u6700\u7EC8\u6539\u6210 9:16 \u9ED1\u767D", wantPrompt: "\u5148\u6309 16:9 \u6784\u56FE\uFF0C\u6700\u7EC8\u6539\u6210 9:16 \u9ED1\u767D", wantRatio: "9:16"},
+		{prompt: "\u7248\u672C 19:16 \u7684\u8BF4\u660E", wantPrompt: "\u7248\u672C 19:16 \u7684\u8BF4\u660E", wantRatio: ""},
 		{prompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE", wantPrompt: "\u4E00\u53EA\u98DE\u5929\u732B\u5728\u98DE", wantRatio: ""},
 	} {
 		gotPrompt, gotRatio := inferChatVideoAspectRatio(test.prompt)
