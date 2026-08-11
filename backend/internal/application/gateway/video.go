@@ -36,6 +36,13 @@ const (
 	videoInputJSONBaseBytes          = int64(len(`{"image_urls":[]}`))
 )
 
+type videoAccountSwitchReason uint8
+
+const (
+	videoAccountKeep videoAccountSwitchReason = iota
+	videoAccountQuotaRejected
+)
+
 // VideoInputFileReference 将本地临时 file_id 编码为只在 Gateway 内部解释的引用。
 func VideoInputFileReference(fileID string) string {
 	return media.InputReference(fileID)
@@ -328,7 +335,7 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 		s.failVideoJob(parent, job, "account_unavailable", err)
 		return
 	}
-	defer lease.Release()
+	defer func() { lease.Release() }()
 	credential, err := s.accounts.EnsureCredential(ctx, lease.Credential, false)
 	if err != nil {
 		s.failVideoJob(parent, job, "account_unavailable", err)
@@ -363,7 +370,49 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 			updateCancel()
 		},
 	}
-	result, err := s.generateVideoWithMaterializationFallback(ctx, adapter, videoRequest, inputReferences, job.ID, route.Provider)
+	excludedAccounts := map[uint64]bool{lease.Credential.ID: true}
+	generate := func(callCtx context.Context, request provider.VideoRequest, switchReason videoAccountSwitchReason) (provider.VideoResult, error) {
+		if switchReason != videoAccountKeep {
+			if switchReason == videoAccountQuotaRejected {
+				s.reconcileRejectedVideoAccount(callCtx, lease)
+			}
+			nextLease, acquireErr := s.selector.AcquireForKey(callCtx, route.Provider, route.ID, route.UpstreamModel, quotaMode, "", excludedAccounts, false, clientkey.AccountScope{})
+			if acquireErr != nil {
+				return provider.VideoResult{}, fmt.Errorf("%w: %w", ErrNoAvailableAccount, acquireErr)
+			}
+			nextCredential, credentialErr := s.accounts.EnsureCredential(callCtx, nextLease.Credential, false)
+			if credentialErr != nil {
+				nextLease.Release()
+				return provider.VideoResult{}, credentialErr
+			}
+			nextLease.Credential = nextCredential
+			nextJob := job
+			nextJob.AccountID, nextJob.AccountName = nextCredential.ID, nextCredential.Name
+			nextJob.UpdatedAt = time.Now().UTC()
+			leaseUntil := nextJob.UpdatedAt.Add(videoJobLease)
+			nextJob.LeaseUntil = &leaseUntil
+			if updateErr := s.mediaJobs.UpdateMediaJob(callCtx, nextJob); updateErr != nil {
+				nextLease.Release()
+				return provider.VideoResult{}, fmt.Errorf("persist video account ownership: %w", updateErr)
+			}
+			lease.Release()
+			lease = nextLease
+			job = nextJob
+			excludedAccounts[nextCredential.ID] = true
+			if s.logger != nil {
+				s.logger.Info("video_account_rotated", "job_id", job.ID, "account_id", nextCredential.ID, "reason", switchReason)
+			}
+		}
+		request.Credential, request.Billing = lease.Credential, lease.Billing
+		return adapter.GenerateVideo(callCtx, request)
+	}
+	var fetchRemote func(context.Context, string) ([]byte, error)
+	if fetcher, ok := adapter.(provider.VideoInputImageFetcher); ok {
+		fetchRemote = func(fetchCtx context.Context, rawURL string) ([]byte, error) {
+			return fetcher.FetchVideoInputImage(fetchCtx, job.ID, rawURL)
+		}
+	}
+	result, err := s.generateVideoWithMaterializationFallback(ctx, generate, fetchRemote, videoRequest, inputReferences, job.ID, route.Provider)
 	// Provider 已消费请求体，尽早释放 Base64 物化名额和大字符串。
 	referenceURLs = nil
 	releaseInputSlot()
@@ -421,7 +470,10 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 		applyMediaJobEgress(&job, egressTrace, route.Provider)
 		s.logVideoGenerationFailure(job, lease.Credential, err)
 		failureCode, publicErr := "generation_failed", err
-		if status, ok := provider.ErrorHTTPStatus(err); errors.Is(err, provider.ErrUnauthorized) || (ok && (status == http.StatusUnauthorized || status == http.StatusForbidden)) {
+		status, hasStatus := provider.ErrorHTTPStatus(err)
+		if errors.Is(err, ErrNoAvailableAccount) || provider.IsVideoCreateQuotaError(err) {
+			failureCode, publicErr = "provider_unavailable", errors.New("upstream service is temporarily unavailable")
+		} else if errors.Is(err, provider.ErrUnauthorized) || (hasStatus && (status == http.StatusUnauthorized || status == http.StatusForbidden)) {
 			failureCode, publicErr = "provider_unavailable", errors.New("上游服务暂不可用")
 		}
 		s.failVideoJob(parent, job, failureCode, publicErr)
@@ -461,23 +513,42 @@ func (s *Service) runVideoJob(parent context.Context, job media.Job, route model
 	s.releaseVideoInputs(job)
 }
 
-func (s *Service) generateVideoWithMaterializationFallback(ctx context.Context, adapter provider.VideoAdapter, request provider.VideoRequest, inputReferences []string, jobID string, providerValue account.Provider) (provider.VideoResult, error) {
-	result, err := adapter.GenerateVideo(ctx, request)
+func (s *Service) generateVideoWithMaterializationFallback(ctx context.Context, generate func(context.Context, provider.VideoRequest, videoAccountSwitchReason) (provider.VideoResult, error), fetchRemote func(context.Context, string) ([]byte, error), request provider.VideoRequest, inputReferences []string, jobID string, providerValue account.Provider) (provider.VideoResult, error) {
+	var result provider.VideoResult
+	var err error
+	switchReason := videoAccountKeep
+	for attempt := 0; attempt < videoMaterializedAttempts; attempt++ {
+		result, err = generate(ctx, request, switchReason)
+		if err == nil || !provider.IsVideoCreateQuotaError(err) || attempt+1 >= videoMaterializedAttempts {
+			break
+		}
+		switchReason = videoAccountQuotaRejected
+		if waitErr := waitVideoMaterializedRetry(ctx, attempt); waitErr != nil {
+			return provider.VideoResult{}, waitErr
+		}
+	}
 	if err == nil || !errors.Is(err, provider.ErrVideoInputDownload) || !strings.HasPrefix(jobID, "video_sora_") || !hasRemoteVideoReference(request.ReferenceURLs) {
 		return result, err
 	}
 	if s.logger != nil {
 		s.logger.Warn("video_input_materialization_fallback", "job_id", jobID, "provider", providerValue, "error", err)
 	}
-	materialized, cleanup, materializeErr := s.materializeRemoteVideoReferences(ctx, request.ReferenceURLs, hasLocalVideoReference(inputReferences))
+	materialized, cleanup, materializeErr := s.materializeRemoteVideoReferences(ctx, request.ReferenceURLs, hasLocalVideoReference(inputReferences), fetchRemote)
 	if materializeErr != nil {
 		return provider.VideoResult{}, fmt.Errorf("视频参考图物化失败: %w", materializeErr)
 	}
 	request.ReferenceURLs = materialized
+	switchReason = videoAccountKeep
 	for attempt := 0; attempt < videoMaterializedAttempts; attempt++ {
-		result, err = adapter.GenerateVideo(ctx, request)
-		if err == nil || !errors.Is(err, provider.ErrVideoInputDownload) || attempt+1 >= videoMaterializedAttempts {
+		result, err = generate(ctx, request, switchReason)
+		retryInput := errors.Is(err, provider.ErrVideoInputDownload)
+		retryQuota := provider.IsVideoCreateQuotaError(err)
+		if err == nil || (!retryInput && !retryQuota) || attempt+1 >= videoMaterializedAttempts {
 			break
+		}
+		switchReason = videoAccountKeep
+		if retryQuota {
+			switchReason = videoAccountQuotaRejected
 		}
 		if waitErr := waitVideoMaterializedRetry(ctx, attempt); waitErr != nil {
 			err = waitErr
@@ -488,6 +559,17 @@ func (s *Service) generateVideoWithMaterializationFallback(ctx context.Context, 
 	materialized = nil
 	cleanup()
 	return result, err
+}
+
+func (s *Service) reconcileRejectedVideoAccount(ctx context.Context, lease *accountLease) {
+	if lease == nil || lease.QuotaMode == "" {
+		return
+	}
+	exhausted, err := s.accounts.ReconcileRateLimit(ctx, lease.Credential.ID, lease.QuotaMode, 0)
+	s.selector.MarkQuotaStateChanged(lease.Credential.Provider, lease.Credential.ID)
+	if err != nil || !exhausted {
+		s.selector.MarkFailure(ctx, lease.Credential, http.StatusTooManyRequests, 0)
+	}
 }
 
 func (s *Service) acquireVideoInputSlot(ctx context.Context, references []string) (func(), error) {
@@ -522,7 +604,7 @@ func hasRemoteVideoReference(references []string) bool {
 	return false
 }
 
-func (s *Service) materializeRemoteVideoReferences(ctx context.Context, references []string, slotHeld bool) ([]string, func(), error) {
+func (s *Service) materializeRemoteVideoReferences(ctx context.Context, references []string, slotHeld bool, fetchRemote func(context.Context, string) ([]byte, error)) ([]string, func(), error) {
 	if s.mediaAssets == nil {
 		return nil, func() {}, ErrVideoInputUnavailable
 	}
@@ -559,6 +641,14 @@ func (s *Service) materializeRemoteVideoReferences(ctx context.Context, referenc
 			continue
 		}
 		asset, err := s.mediaAssets.ImportInputImageFromURL(ctx, reference)
+		if err != nil && fetchRemote != nil {
+			data, fetchErr := fetchRemote(ctx, reference)
+			if fetchErr != nil {
+				cleanup()
+				return nil, func() {}, errors.Join(err, fetchErr)
+			}
+			asset, err = s.mediaAssets.SaveInputImage(ctx, data)
+		}
 		if err != nil {
 			cleanup()
 			return nil, func() {}, err

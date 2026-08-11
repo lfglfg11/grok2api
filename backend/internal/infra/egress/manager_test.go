@@ -32,6 +32,30 @@ func (responseHeaderTimeoutError) Error() string   { return "http2: timeout awai
 func (responseHeaderTimeoutError) Timeout() bool   { return true }
 func (responseHeaderTimeoutError) Temporary() bool { return true }
 
+func TestAcquirePublicAssetCanReuseHealthyBuildProxyWithoutCredentials(t *testing.T) {
+	cipher, err := security.NewCipher("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encryptedProxy, err := cipher.Encrypt("http://proxy.example:8080")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(egressRepositoryTestStub{nodes: []domain.Node{
+		{ID: 1, Name: "excluded", Scope: domain.ScopeConsole, Enabled: true, Health: 1, EncryptedProxyURL: encryptedProxy},
+		{ID: 2, Name: "build-public", Scope: domain.ScopeBuild, Enabled: true, Health: 1, EncryptedProxyURL: encryptedProxy},
+	}}, cipher)
+
+	lease, err := manager.AcquirePublicAsset(context.Background(), "job-1", map[uint64]bool{1: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Release()
+	if lease.NodeID != 2 || lease.Scope != domain.ScopeConsoleAsset || lease.ProxyURL != "http://proxy.example:8080" || lease.CFCookies != "" {
+		t.Fatalf("public asset lease=%#v", lease)
+	}
+}
+
 func TestForgetClearancesEvictsSelectedNodesInOneBatch(t *testing.T) {
 	manager := NewManager(egressRepositoryTestStub{}, nil)
 	first := &scriptedRequestClient{}

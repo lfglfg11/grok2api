@@ -74,8 +74,16 @@ func TestFetchImageRetriesTransientFailureThreeTimes(t *testing.T) {
 		calls++
 		return nil, want
 	})
-	if !errors.Is(err, want) || calls != fetchAttempts {
+	if !errors.Is(err, want) || calls != transportAttempts {
 		t.Fatalf("err=%v calls=%d", err, calls)
+	}
+	calls = 0
+	_, err = fetchImageWith(context.Background(), "https://example.com/image.png", func(context.Context, string) ([]byte, error) {
+		calls++
+		return nil, statusError{status: http.StatusForbidden}
+	})
+	if err == nil || calls != fetchAttempts {
+		t.Fatalf("header-strategy err=%v calls=%d", err, calls)
 	}
 	calls = 0
 	_, err = fetchImageWith(context.Background(), "https://example.com/image.png", func(context.Context, string) ([]byte, error) {

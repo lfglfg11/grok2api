@@ -31,6 +31,38 @@ type HTTPStatusError interface {
 	HTTPStatusCode() int
 }
 
+// VideoCreateError marks an error returned before an asynchronous video task
+// was created. Callers may safely select another account for quota rejection;
+// polling errors are deliberately not wrapped because the task may exist.
+type VideoCreateError struct {
+	Cause error
+}
+
+func (e *VideoCreateError) Error() string {
+	if e == nil || e.Cause == nil {
+		return "video creation failed"
+	}
+	return e.Cause.Error()
+}
+
+func (e *VideoCreateError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+// IsVideoCreateQuotaError reports a definitive quota rejection received while
+// creating a video, before an upstream task ID could have been issued.
+func IsVideoCreateQuotaError(err error) bool {
+	var createErr *VideoCreateError
+	if !errors.As(err, &createErr) {
+		return false
+	}
+	status, ok := ErrorHTTPStatus(createErr.Cause)
+	return ok && (status == http.StatusPaymentRequired || status == http.StatusTooManyRequests)
+}
+
 // ErrorHTTPStatus extracts the upstream HTTP status from a Provider error chain.
 func ErrorHTTPStatus(err error) (int, bool) {
 	var statusError HTTPStatusError
@@ -425,6 +457,13 @@ type ConsoleMediaAssetStore interface {
 type VideoAdapter interface {
 	Adapter
 	GenerateVideo(ctx context.Context, request VideoRequest) (VideoResult, error)
+}
+
+// VideoInputImageFetcher is implemented by Providers that can download a
+// public reference image through the managed egress pool. No Provider
+// credential or cookie may be attached to the third-party image request.
+type VideoInputImageFetcher interface {
+	FetchVideoInputImage(ctx context.Context, affinity, rawURL string) ([]byte, error)
 }
 
 // VideoContentDownloader reads completed video content using the credential that created the task.

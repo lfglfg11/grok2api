@@ -485,6 +485,39 @@ func (m *Manager) AcquireIfConfigured(ctx context.Context, scope domain.Scope, a
 	return m.acquire(ctx, scope, affinity, false, "", egressNodeFromContext(ctx))
 }
 
+// AcquirePublicAsset selects a healthy managed proxy for downloading an
+// untrusted public resource. Public media carries no Provider credentials,
+// cookies, or authorization headers, so it may safely use any configured
+// proxy scope. This is intentionally separate from Provider traffic, whose
+// scope and account affinity must remain strict.
+func (m *Manager) AcquirePublicAsset(ctx context.Context, affinity string, excluded map[uint64]bool) (*Lease, error) {
+	now := time.Now().UTC()
+	nodes, err := m.listNodes(ctx, "", now)
+	if err != nil {
+		return nil, err
+	}
+	available := make([]domain.Node, 0, len(nodes))
+	for _, node := range nodes {
+		if excluded[node.ID] || !node.Enabled || strings.TrimSpace(node.EncryptedProxyURL) == "" {
+			continue
+		}
+		if !m.isProxyPoolNode(node) && (node.CooldownUntil != nil && now.Before(*node.CooldownUntil)) {
+			continue
+		}
+		if node.Health <= 0 || node.IPv4Probe.Status == domain.ProbeStatusUnhealthy {
+			continue
+		}
+		available = append(available, node)
+	}
+	if len(available) == 0 {
+		return nil, errors.New("no managed proxy is available for public media")
+	}
+	sort.SliceStable(available, func(i, j int) bool { return available[i].ID < available[j].ID })
+	selected := m.selectNode(available, affinity)
+	lease, _, err := m.leaseForNode(ctx, domain.ScopeConsoleAsset, affinity, "", false, selected)
+	return lease, err
+}
+
 type preparedEgressProbe struct {
 	nodeID    uint64
 	nodeName  string

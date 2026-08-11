@@ -18,16 +18,18 @@ import (
 )
 
 const (
-	MaxImageBytes  = 20 << 20
-	fetchAttempts  = 3
-	fetchTimeout   = 20 * time.Second
-	resolveTimeout = 3 * time.Second
-	maxRedirects   = 5
+	MaxImageBytes     = 20 << 20
+	fetchAttempts     = 6
+	transportAttempts = 3
+	fetchTimeout      = 20 * time.Second
+	resolveTimeout    = 3 * time.Second
+	maxRedirects      = 5
 )
 
 var (
 	ErrImageTooLarge = errors.New("remote image exceeds size limit")
 	ErrFetchBlocked  = errors.New("remote image URL is not allowed")
+	ErrInvalidImage  = errors.New("remote response is empty or not an image")
 )
 
 type resolver interface {
@@ -42,16 +44,39 @@ type target struct {
 
 type statusError struct{ status int }
 
+type PinnedHTTPSDoer func(request *http.Request, serverName string) (*http.Response, error)
+
 func (e statusError) Error() string { return fmt.Sprintf("remote image returned HTTP %d", e.status) }
 
 // FetchImage downloads a public HTTP(S) image while pinning every validated
 // redirect target to prevent DNS rebinding and other SSRF bypasses.
 func FetchImage(ctx context.Context, rawURL string) ([]byte, error) {
-	return fetchImageWith(ctx, rawURL, fetchImageOnce)
+	attempt := 0
+	return fetchImageWith(ctx, rawURL, func(ctx context.Context, rawURL string) ([]byte, error) {
+		data, err := fetchImageOnceWith(ctx, rawURL, attempt, nil)
+		attempt++
+		return data, err
+	})
+}
+
+// FetchImageWithPinnedHTTPS downloads through a caller-owned managed egress
+// lease while retaining DNS pinning, redirect validation, size limits, and the
+// same three-attempt header strategy as direct downloads.
+func FetchImageWithPinnedHTTPS(ctx context.Context, rawURL string, do PinnedHTTPSDoer) ([]byte, error) {
+	if do == nil {
+		return nil, errors.New("managed media transport is nil")
+	}
+	attempt := 0
+	return fetchImageWith(ctx, rawURL, func(ctx context.Context, rawURL string) ([]byte, error) {
+		data, err := fetchImageOnceWith(ctx, rawURL, attempt, do)
+		attempt++
+		return data, err
+	})
 }
 
 func fetchImageWith(ctx context.Context, rawURL string, fetch func(context.Context, string) ([]byte, error)) ([]byte, error) {
 	var lastErr error
+	transportFailures := 0
 	for attempt := 0; attempt < fetchAttempts; attempt++ {
 		data, err := fetch(ctx, rawURL)
 		if err == nil {
@@ -61,6 +86,13 @@ func fetchImageWith(ctx context.Context, rawURL string, fetch func(context.Conte
 		if !retryable(err) || attempt+1 >= fetchAttempts {
 			break
 		}
+		var status statusError
+		if !errors.As(err, &status) && !errors.Is(err, ErrInvalidImage) {
+			transportFailures++
+			if transportFailures >= transportAttempts {
+				break
+			}
+		}
 		if err := waitRetry(ctx, attempt); err != nil {
 			return nil, err
 		}
@@ -68,7 +100,7 @@ func fetchImageWith(ctx context.Context, rawURL string, fetch func(context.Conte
 	return nil, lastErr
 }
 
-func fetchImageOnce(ctx context.Context, rawURL string) ([]byte, error) {
+func fetchImageOnceWith(ctx context.Context, rawURL string, attempt int, managed PinnedHTTPSDoer) ([]byte, error) {
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || !validURL(parsed) {
 		return nil, ErrFetchBlocked
@@ -86,13 +118,23 @@ func fetchImageOnce(ctx context.Context, rawURL string) ([]byte, error) {
 			return nil, err
 		}
 		req.Host = target.hostHeader
-		req.Header.Set("Accept", "image/*")
-		req.Header.Set("User-Agent", "grok2api-media-importer/1.0")
+		applyImageRequestHeaders(req, parsed, attempt)
 
-		client, transport := newClient(target)
-		resp, err := client.Do(req)
+		var resp *http.Response
+		var closeIdle func()
+		if managed != nil {
+			if parsed.Scheme != "https" || parsed.Port() != "" && parsed.Port() != "443" {
+				return nil, fmt.Errorf("managed media download requires HTTPS 443: %w", ErrFetchBlocked)
+			}
+			resp, err = managed(req, target.serverName)
+			closeIdle = func() {}
+		} else {
+			client, transport := newClient(target)
+			resp, err = client.Do(req)
+			closeIdle = transport.CloseIdleConnections
+		}
 		if err != nil {
-			transport.CloseIdleConnections()
+			closeIdle()
 			if errors.Is(err, ErrFetchBlocked) {
 				return nil, ErrFetchBlocked
 			}
@@ -100,7 +142,7 @@ func fetchImageOnce(ctx context.Context, rawURL string) ([]byte, error) {
 		}
 		if isRedirect(resp.StatusCode) && resp.Header.Get("Location") != "" {
 			_ = resp.Body.Close()
-			transport.CloseIdleConnections()
+			closeIdle()
 			if redirects >= maxRedirects {
 				return nil, errors.New("remote image has too many redirects")
 			}
@@ -113,8 +155,53 @@ func fetchImageOnce(ctx context.Context, rawURL string) ([]byte, error) {
 		}
 
 		data, readErr := readImage(resp)
-		transport.CloseIdleConnections()
+		closeIdle()
 		return data, readErr
+	}
+}
+
+func applyImageRequestHeaders(request *http.Request, parsed *url.URL, attempt int) {
+	request.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
+	request.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	request.Header.Set("Cache-Control", "no-cache")
+	request.Header.Set("Pragma", "no-cache")
+	request.Header.Set("Sec-Ch-Ua", `"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"`)
+	request.Header.Set("Sec-Ch-Ua-Mobile", "?0")
+	request.Header.Set("Sec-Ch-Ua-Platform", `"Windows"`)
+	request.Header.Set("Upgrade-Insecure-Requests", "1")
+	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36")
+	switch attempt % 3 {
+	case 0: // Browser navigation works for hosts that reject bare image clients.
+		request.Header.Set("Sec-Fetch-Site", "none")
+		request.Header.Set("Sec-Fetch-Mode", "navigate")
+		request.Header.Set("Sec-Fetch-Dest", "document")
+		request.Header.Set("Sec-Fetch-User", "?1")
+	case 1: // Ordinary cross-site image resource.
+		request.Header.Set("Sec-Fetch-Site", "cross-site")
+		request.Header.Set("Sec-Fetch-Mode", "no-cors")
+		request.Header.Set("Sec-Fetch-Dest", "image")
+	case 2: // Same-origin Referer/Origin fallback for hotlink-protected hosts.
+		origin := parsed.Scheme + "://" + parsed.Host
+		request.Header.Set("Referer", origin+"/")
+		request.Header.Set("Origin", origin)
+		request.Header.Set("Sec-Fetch-Site", "same-origin")
+		request.Header.Set("Sec-Fetch-Mode", "no-cors")
+		request.Header.Set("Sec-Fetch-Dest", "image")
+	case 3: // Origin only; some hosts reject Referer while requiring Origin.
+		origin := parsed.Scheme + "://" + parsed.Host
+		request.Header.Set("Origin", origin)
+		request.Header.Set("Sec-Fetch-Site", "cross-site")
+		request.Header.Set("Sec-Fetch-Mode", "no-cors")
+		request.Header.Set("Sec-Fetch-Dest", "image")
+	case 4: // Explicitly no Referer or Origin.
+		request.Header.Set("Sec-Fetch-Site", "cross-site")
+		request.Header.Set("Sec-Fetch-Mode", "no-cors")
+		request.Header.Set("Sec-Fetch-Dest", "image")
+	case 5: // Self Referer fallback.
+		request.Header.Set("Referer", parsed.String())
+		request.Header.Set("Sec-Fetch-Site", "cross-site")
+		request.Header.Set("Sec-Fetch-Mode", "no-cors")
+		request.Header.Set("Sec-Fetch-Dest", "image")
 	}
 }
 
@@ -124,7 +211,8 @@ func retryable(err error) bool {
 	}
 	var status statusError
 	if errors.As(err, &status) {
-		return status.status == http.StatusRequestTimeout || status.status == http.StatusTooEarly || status.status == http.StatusTooManyRequests || status.status >= 500
+		return status.status == http.StatusUnauthorized || status.status == http.StatusForbidden || status.status == http.StatusNotAcceptable ||
+			status.status == http.StatusRequestTimeout || status.status == http.StatusTooEarly || status.status == http.StatusTooManyRequests || status.status >= 500
 	}
 	return true
 }
@@ -244,6 +332,14 @@ func readImage(resp *http.Response) ([]byte, error) {
 	}
 	if len(data) > MaxImageBytes {
 		return nil, ErrImageTooLarge
+	}
+	if len(data) == 0 {
+		return nil, ErrInvalidImage
+	}
+	switch http.DetectContentType(data) {
+	case "image/jpeg", "image/png", "image/gif", "image/webp":
+	default:
+		return nil, ErrInvalidImage
 	}
 	return data, nil
 }

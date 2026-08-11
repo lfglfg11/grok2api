@@ -20,6 +20,7 @@ import (
 	modeldomain "github.com/chenyme/grok2api/backend/internal/domain/model"
 	infraegress "github.com/chenyme/grok2api/backend/internal/infra/egress"
 	"github.com/chenyme/grok2api/backend/internal/infra/provider"
+	"github.com/chenyme/grok2api/backend/internal/pkg/remotemedia"
 )
 
 const (
@@ -459,7 +460,7 @@ func (a *Adapter) GenerateVideo(ctx context.Context, request provider.VideoReque
 	baseURL := a.config().BaseURL
 	created, err := a.doConsoleVideoJSON(ctx, request.Credential, token, lease, http.MethodPost, consoleV1Endpoint(baseURL, "/videos/generations"), body)
 	if err != nil {
-		return provider.VideoResult{}, err
+		return provider.VideoResult{}, &provider.VideoCreateError{Cause: err}
 	}
 	requestID, err := parseConsoleVideoCreate(created)
 	if err != nil {
@@ -488,6 +489,23 @@ func (a *Adapter) GenerateVideo(ctx context.Context, request provider.VideoReque
 		case <-ticker.C:
 		}
 	}
+}
+
+// FetchVideoInputImage uses the managed public-resource egress pool without
+// attaching Console authorization, DPoP, cookies, or account identity to the
+// third-party URL.
+func (a *Adapter) FetchVideoInputImage(ctx context.Context, affinity, rawURL string) ([]byte, error) {
+	excluded := make(map[uint64]bool, 3)
+	return remotemedia.FetchImageWithPinnedHTTPS(ctx, rawURL, func(request *http.Request, serverName string) (*http.Response, error) {
+		lease, err := a.egress.AcquirePublicAsset(ctx, fmt.Sprintf("%s_%d", affinity, len(excluded)), excluded)
+		if err != nil {
+			return nil, err
+		}
+		excluded[lease.NodeID] = true
+		response, fetchErr := lease.DoPinnedHTTPS(request, serverName)
+		lease.Release()
+		return response, fetchErr
+	})
 }
 
 func (a *Adapter) doConsoleVideoJSON(ctx context.Context, credential account.Credential, token string, lease *infraegress.Lease, method, endpoint string, body []byte) ([]byte, error) {

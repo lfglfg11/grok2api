@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -208,8 +209,13 @@ func TestCompatibleVideoFallsBackToMaterializedInputForThreeAttempts(t *testing.
 	service.ConfigureMedia(nil, 4)
 	adapter := &videoFallbackAdapter{inputFailures: 3}
 	request := provider.VideoRequest{ReferenceURLs: []string{remoteURL}}
+	var switchReasons []videoAccountSwitchReason
+	generate := func(ctx context.Context, request provider.VideoRequest, reason videoAccountSwitchReason) (provider.VideoResult, error) {
+		switchReasons = append(switchReasons, reason)
+		return adapter.GenerateVideo(ctx, request)
+	}
 
-	result, err := service.generateVideoWithMaterializationFallback(context.Background(), adapter, request, []string{remoteURL}, "video_sora_test", account.ProviderConsole)
+	result, err := service.generateVideoWithMaterializationFallback(context.Background(), generate, nil, request, []string{remoteURL}, "video_sora_test", account.ProviderConsole)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +234,86 @@ func TestCompatibleVideoFallsBackToMaterializedInputForThreeAttempts(t *testing.
 	if store.importCalls != 1 || store.releaseCalls != 1 {
 		t.Fatalf("imports=%d releases=%d", store.importCalls, store.releaseCalls)
 	}
+	wantReasons := []videoAccountSwitchReason{videoAccountKeep, videoAccountKeep, videoAccountKeep, videoAccountKeep}
+	if !reflect.DeepEqual(switchReasons, wantReasons) {
+		t.Fatalf("switch reasons=%v want=%v", switchReasons, wantReasons)
+	}
 }
+
+func TestCompatibleVideoRotatesAccountsForCreateQuotaRejections(t *testing.T) {
+	const remoteURL = "https://images.example.com/reference.png"
+	store := &videoAssetStoreStub{imported: map[string][]byte{remoteURL: []byte("png-bytes")}}
+	service := &Service{mediaAssets: store}
+	service.ConfigureMedia(nil, 4)
+	request := provider.VideoRequest{ReferenceURLs: []string{remoteURL}}
+	errorsByCall := []error{
+		fmt.Errorf("%w: interrupted", provider.ErrVideoInputDownload),
+		&provider.VideoCreateError{Cause: videoQuotaStatusError{}},
+		nil,
+	}
+	var reasons []videoAccountSwitchReason
+	generate := func(_ context.Context, request provider.VideoRequest, reason videoAccountSwitchReason) (provider.VideoResult, error) {
+		reasons = append(reasons, reason)
+		call := len(reasons) - 1
+		if call < len(errorsByCall) && errorsByCall[call] != nil {
+			return provider.VideoResult{}, errorsByCall[call]
+		}
+		if len(request.ReferenceURLs) != 1 || !strings.HasPrefix(request.ReferenceURLs[0], "data:image/png;base64,") {
+			t.Fatalf("successful request was not materialized: %#v", request.ReferenceURLs)
+		}
+		return provider.VideoResult{URL: "https://vidgen.x.ai/result.mp4"}, nil
+	}
+
+	if _, err := service.generateVideoWithMaterializationFallback(context.Background(), generate, nil, request, []string{remoteURL}, "video_sora_test", account.ProviderConsole); err != nil {
+		t.Fatal(err)
+	}
+	want := []videoAccountSwitchReason{videoAccountKeep, videoAccountKeep, videoAccountQuotaRejected}
+	if !reflect.DeepEqual(reasons, want) {
+		t.Fatalf("switch reasons=%v want=%v", reasons, want)
+	}
+	if store.importCalls != 1 || store.releaseCalls != 1 {
+		t.Fatalf("imports=%d releases=%d", store.importCalls, store.releaseCalls)
+	}
+}
+
+func TestCompatibleVideoUsesManagedFetchWhenServerDirectDownloadFails(t *testing.T) {
+	const remoteURL = "https://images.example.com/reference.png"
+	store := &videoAssetStoreStub{}
+	service := &Service{mediaAssets: store}
+	service.ConfigureMedia(nil, 4)
+	request := provider.VideoRequest{ReferenceURLs: []string{remoteURL}}
+	calls := 0
+	generate := func(_ context.Context, request provider.VideoRequest, _ videoAccountSwitchReason) (provider.VideoResult, error) {
+		calls++
+		if calls == 1 {
+			return provider.VideoResult{}, fmt.Errorf("%w: interrupted", provider.ErrVideoInputDownload)
+		}
+		if len(request.ReferenceURLs) != 1 || !strings.HasPrefix(request.ReferenceURLs[0], "data:image/png;base64,") {
+			t.Fatalf("fallback request was not materialized: %#v", request.ReferenceURLs)
+		}
+		return provider.VideoResult{URL: "https://vidgen.x.ai/result.mp4"}, nil
+	}
+	fetchCalls := 0
+	fetch := func(_ context.Context, rawURL string) ([]byte, error) {
+		fetchCalls++
+		if rawURL != remoteURL {
+			t.Fatalf("managed fetch URL=%q", rawURL)
+		}
+		return []byte("managed-png-bytes"), nil
+	}
+
+	if _, err := service.generateVideoWithMaterializationFallback(context.Background(), generate, fetch, request, []string{remoteURL}, "video_sora_test", account.ProviderConsole); err != nil {
+		t.Fatal(err)
+	}
+	if store.importCalls != 1 || fetchCalls != 1 || store.releaseCalls != 1 {
+		t.Fatalf("direct imports=%d managed fetches=%d releases=%d", store.importCalls, fetchCalls, store.releaseCalls)
+	}
+}
+
+type videoQuotaStatusError struct{}
+
+func (videoQuotaStatusError) Error() string       { return "quota exceeded" }
+func (videoQuotaStatusError) HTTPStatusCode() int { return http.StatusTooManyRequests }
 
 type videoFallbackAdapter struct {
 	inputFailures int
@@ -321,6 +406,15 @@ func (s *videoAssetStoreStub) SaveVideo(_ context.Context, jobID, contentType st
 		return media.Asset{}, fmt.Errorf("video body = %q: %w", data, err)
 	}
 	return media.Asset{ID: "vid_local", Kind: "video", MIMEType: "video/mp4", SizeBytes: int64(len(data))}, nil
+}
+
+func (s *videoAssetStoreStub) SaveInputImage(_ context.Context, data []byte) (media.Asset, error) {
+	if len(data) == 0 {
+		return media.Asset{}, errors.New("empty input image")
+	}
+	s.inputID = "input_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	s.inputData = append([]byte(nil), data...)
+	return media.Asset{ID: s.inputID, Kind: "image", MIMEType: "image/png", SizeBytes: int64(len(data))}, nil
 }
 
 func (*videoAssetStoreStub) OpenVideo(context.Context, string) (media.Asset, io.ReadCloser, error) {
