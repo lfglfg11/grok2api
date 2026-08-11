@@ -185,7 +185,7 @@ func TestNormalizeRequestAppliesConsoleContract(t *testing.T) {
 	}
 }
 
-func TestNormalizeRequestDoesNotInjectToolsForConsoleCatalog(t *testing.T) {
+func TestNormalizeRequestInjectsDefaultToolsOnlyForMultiAgentModels(t *testing.T) {
 	for _, spec := range catalog {
 		t.Run(spec.PublicID, func(t *testing.T) {
 			body, err := normalizeRequest([]byte(`{"model":"public","input":"hello","tool_choice":"required"}`), spec)
@@ -196,6 +196,12 @@ func TestNormalizeRequestDoesNotInjectToolsForConsoleCatalog(t *testing.T) {
 			if err := json.Unmarshal(body, &payload); err != nil {
 				t.Fatal(err)
 			}
+			if isMultiAgentModel(spec.UpstreamModel) {
+				if payload["tools"] == nil || payload["tool_choice"] != "required" {
+					t.Fatalf("Console default tools missing: %#v", payload)
+				}
+				return
+			}
 			if payload["tools"] != nil || payload["tool_choice"] != nil {
 				t.Fatalf("Console must not inject tools: %#v", payload)
 			}
@@ -203,7 +209,37 @@ func TestNormalizeRequestDoesNotInjectToolsForConsoleCatalog(t *testing.T) {
 	}
 }
 
-func TestNormalizeRequestPreservesMultiAgentDefaultsWithoutInjectingTools(t *testing.T) {
+func TestNormalizeRequestEnablesFutureMultiAgentModelTools(t *testing.T) {
+	models := []string{
+		"grok-4.5-multi-agent",
+		"grok-4.5-multi-agent-0401",
+		"GROK-4.6-MULTI-AGENT",
+	}
+	for _, upstreamModel := range models {
+		t.Run(upstreamModel, func(t *testing.T) {
+			spec := ModelSpec{UpstreamModel: upstreamModel}
+			body, err := normalizeRequest([]byte(`{"model":"future","input":"hello"}`), spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(body, &payload); err != nil {
+				t.Fatal(err)
+			}
+			tools, _ := payload["tools"].([]any)
+			if len(tools) != 3 || toolIdentity(tools[0]) != "code_interpreter" || toolIdentity(tools[1]) != "web_search" || toolIdentity(tools[2]) != "x_search" || payload["tool_choice"] != "auto" {
+				t.Fatalf("future multi-agent tools = %#v choice=%#v", tools, payload["tool_choice"])
+			}
+		})
+	}
+	for _, upstreamModel := range []string{"grok-4.5", "grok-4.5-multi-agentic"} {
+		if isMultiAgentModel(upstreamModel) {
+			t.Fatalf("non-multi-agent model matched: %q", upstreamModel)
+		}
+	}
+}
+
+func TestNormalizeRequestEnablesMultiAgentDefaultTools(t *testing.T) {
 	spec, ok := Resolve("grok-4.20-multi-agent-0309")
 	if !ok {
 		t.Fatal("grok-4.20-multi-agent-0309 missing")
@@ -224,8 +260,18 @@ func TestNormalizeRequestPreservesMultiAgentDefaultsWithoutInjectingTools(t *tes
 		t.Fatalf("multi-agent defaults = %#v", payload)
 	}
 	include, _ := payload["include"].([]any)
-	if len(include) != 1 || include[0] != "reasoning.encrypted_content" || payload["tools"] != nil || payload["tool_choice"] != nil {
+	if len(include) != 1 || include[0] != "reasoning.encrypted_content" || payload["tool_choice"] != "auto" {
 		t.Fatalf("multi-agent compatibility = %#v", payload)
+	}
+	tools, _ := payload["tools"].([]any)
+	if len(tools) != 3 || toolIdentity(tools[0]) != "code_interpreter" || toolIdentity(tools[1]) != "web_search" || toolIdentity(tools[2]) != "x_search" {
+		t.Fatalf("multi-agent default tools = %#v", tools)
+	}
+	for _, index := range []int{1, 2} {
+		tool := tools[index].(map[string]any)
+		if tool["enable_image_understanding"] != true {
+			t.Fatalf("multi-agent search tool = %#v", tool)
+		}
 	}
 	explicit, err := normalizeRequest([]byte(`{"model":"grok-4.20-multi-agent-0309","input":"hello","reasoning":{"effort":"xhigh"}}`), spec)
 	if err != nil {
@@ -234,6 +280,39 @@ func TestNormalizeRequestPreservesMultiAgentDefaultsWithoutInjectingTools(t *tes
 	payload = nil
 	if json.Unmarshal(explicit, &payload) != nil || payload["reasoning"].(map[string]any)["effort"] != "xhigh" {
 		t.Fatalf("explicit multi-agent effort = %#v", payload)
+	}
+}
+
+func TestNormalizeRequestCompletesMultiAgentToolsWithoutOverridingExplicitSettings(t *testing.T) {
+	spec, ok := Resolve("grok-4.20-multi-agent-0309")
+	if !ok {
+		t.Fatal("grok-4.20-multi-agent-0309 missing")
+	}
+	body, err := normalizeRequest([]byte(`{
+		"model":"grok-4.20-multi-agent-0309",
+		"input":"hello",
+		"tools":[
+			{"type":"web_search","enable_image_understanding":false},
+			{"type":"function","name":"lookup","parameters":{"type":"object"}}
+		],
+		"tool_choice":"none"
+	}`), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatal(err)
+	}
+	tools, _ := payload["tools"].([]any)
+	if len(tools) != 4 || toolIdentity(tools[0]) != "web_search" || toolIdentity(tools[1]) != "function:lookup" || toolIdentity(tools[2]) != "code_interpreter" || toolIdentity(tools[3]) != "x_search" {
+		t.Fatalf("completed tools = %#v", tools)
+	}
+	if tools[0].(map[string]any)["enable_image_understanding"] != false || tools[3].(map[string]any)["enable_image_understanding"] != true {
+		t.Fatalf("explicit/default search settings = %#v", tools)
+	}
+	if payload["tool_choice"] != "none" {
+		t.Fatalf("explicit tool opt-out changed: %#v", payload["tool_choice"])
 	}
 }
 
@@ -403,6 +482,40 @@ func TestGrok420FixedReasoningStripsEffortAfterProtocolConversion(t *testing.T) 
 	}
 }
 
+func TestMultiAgentDefaultToolsAfterProtocolConversion(t *testing.T) {
+	spec, ok := Resolve("grok-4.20-multi-agent-0309")
+	if !ok {
+		t.Fatal("grok-4.20-multi-agent-0309 missing")
+	}
+	tests := []struct {
+		operation string
+		body      string
+	}{
+		{operation: conversation.OperationChat, body: `{"model":"public","messages":[{"role":"user","content":"latest news"}]}`},
+		{operation: conversation.OperationMessages, body: `{"model":"public","max_tokens":1024,"messages":[{"role":"user","content":"latest news"}]}`},
+	}
+	for _, test := range tests {
+		t.Run(test.operation, func(t *testing.T) {
+			converted, err := conversation.ConvertRequest([]byte(test.body), spec.UpstreamModel, test.operation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			normalized, err := normalizeRequest(converted, spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(normalized, &payload); err != nil {
+				t.Fatal(err)
+			}
+			tools, _ := payload["tools"].([]any)
+			if len(tools) != 3 || toolIdentity(tools[0]) != "code_interpreter" || toolIdentity(tools[1]) != "web_search" || toolIdentity(tools[2]) != "x_search" || payload["tool_choice"] != "auto" {
+				t.Fatalf("%s multi-agent tools = %#v choice=%#v", test.operation, tools, payload["tool_choice"])
+			}
+		})
+	}
+}
+
 func TestConsoleImportAcceptsJSONPlainTextAndCookieFormat(t *testing.T) {
 	values, err := parseImportedCredentials([]byte("sso=token-one; sso-rw=token-one\ntoken-two\ntoken-two\n"))
 	if err != nil {
@@ -534,6 +647,15 @@ func TestAdapterAttachesConsoleRateLimitMetadata(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if serveTestDPoPToken(t, writer, request) {
 			return
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Error(err)
+		} else {
+			tools, _ := payload["tools"].([]any)
+			if len(tools) != 3 || toolIdentity(tools[0]) != "code_interpreter" || toolIdentity(tools[1]) != "web_search" || toolIdentity(tools[2]) != "x_search" || payload["tool_choice"] != "auto" {
+				t.Errorf("upstream multi-agent request tools = %#v choice=%#v", tools, payload["tool_choice"])
+			}
 		}
 		writer.Header().Set("Content-Type", "text/plain")
 		writer.WriteHeader(http.StatusTooManyRequests)

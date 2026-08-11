@@ -38,6 +38,7 @@ func normalizeRequest(body []byte, spec ModelSpec) ([]byte, error) {
 	}
 	normalizeReasoning(payload, spec)
 	ensureReasoningInclude(payload)
+	ensureMultiAgentDefaultTools(payload, spec)
 	retainedClientTools := normalizeConsoleTools(payload)
 	normalizeConsoleToolChoice(payload, retainedClientTools)
 	return json.Marshal(payload)
@@ -202,6 +203,55 @@ func ensureReasoningInclude(payload map[string]any) {
 	payload["include"] = result
 }
 
+func ensureMultiAgentDefaultTools(payload map[string]any, spec ModelSpec) {
+	if !isMultiAgentModel(spec.UpstreamModel) {
+		return
+	}
+	tools, _ := payload["tools"].([]any)
+	seen := make(map[string]struct{}, len(tools))
+	for _, rawTool := range tools {
+		tool, ok := rawTool.(map[string]any)
+		if !ok {
+			continue
+		}
+		typeName, _ := tool["type"].(string)
+		if canonical := canonicalConsoleToolType(typeName); canonical != "" {
+			seen[canonical] = struct{}{}
+		}
+	}
+	defaults := []map[string]any{
+		{"type": "code_interpreter"},
+		{"type": "web_search", "enable_image_understanding": true},
+		{"type": "x_search", "enable_image_understanding": true},
+	}
+	for _, tool := range defaults {
+		typeName := tool["type"].(string)
+		if _, exists := seen[typeName]; exists {
+			continue
+		}
+		tools = append(tools, tool)
+	}
+	payload["tools"] = tools
+}
+
+func isMultiAgentModel(upstreamModel string) bool {
+	canonical := "-" + strings.ToLower(strings.TrimSpace(upstreamModel)) + "-"
+	return strings.Contains(canonical, "-multi-agent-")
+}
+
+func canonicalConsoleToolType(typeName string) string {
+	switch strings.ToLower(strings.TrimSpace(typeName)) {
+	case "web_search", "web_search_preview", "web_search_preview_2025_03_11", "web_search_2025_08_26":
+		return "web_search"
+	case "x_search":
+		return "x_search"
+	case "code_interpreter":
+		return "code_interpreter"
+	default:
+		return ""
+	}
+}
+
 func normalizeConsoleTools(payload map[string]any) bool {
 	value, exists := payload["tools"]
 	if !exists || value == nil {
@@ -231,9 +281,9 @@ func normalizeConsoleTools(payload map[string]any) bool {
 			}
 			result = append(result, clean)
 		case "x_search":
-			clean := map[string]any{"type": "x_search", "enable_video_understanding": true}
-			if enabled, ok := tool["enable_video_understanding"].(bool); ok {
-				clean["enable_video_understanding"] = enabled
+			clean := map[string]any{"type": "x_search", "enable_image_understanding": true}
+			if enabled, ok := tool["enable_image_understanding"].(bool); ok {
+				clean["enable_image_understanding"] = enabled
 			}
 			result = append(result, clean)
 		case "function":
