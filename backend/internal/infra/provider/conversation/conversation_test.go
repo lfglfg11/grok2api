@@ -902,6 +902,69 @@ func TestConvertResponsesStreamChatPreservesAnnotations(t *testing.T) {
 	}
 }
 
+func TestConvertResponsesStreamChatExposesServerToolProgressAsReasoning(t *testing.T) {
+	stream := strings.Join([]string{
+		`event: response.created`,
+		`data: {"type":"response.created","response":{"id":"resp_1","model":"grok-4.20-multi-agent-0309"}}`, "",
+		`event: response.output_item.added`,
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"id":"ws_1","type":"web_search_call","status":"in_progress","action":{"type":"search","query":"latest\n  world news"}}}`, "",
+		`event: response.output_item.done`,
+		`data: {"type":"response.output_item.done","output_index":0,"item":{"id":"ws_1","type":"web_search_call","status":"completed","action":{"type":"search","query":"latest world news"}}}`, "",
+		`event: response.output_item.added`,
+		`data: {"type":"response.output_item.added","output_index":1,"item":{"id":"xs_1","type":"x_search_call","status":"in_progress","action":{"type":"search","query":"breaking news"}}}`, "",
+		`event: response.output_item.done`,
+		`data: {"type":"response.output_item.done","output_index":1,"item":{"id":"xs_1","type":"x_search_call","status":"failed","action":{"type":"search","query":"breaking news"}}}`, "",
+		`event: response.output_item.added`,
+		`data: {"type":"response.output_item.added","output_index":2,"item":{"id":"ci_1","type":"code_interpreter_call","status":"in_progress"}}`, "",
+		`event: response.output_item.done`,
+		`data: {"type":"response.output_item.done","output_index":2,"item":{"id":"ci_1","type":"code_interpreter_call","status":"completed"}}`, "",
+		`event: response.completed`,
+		`data: {"type":"response.completed","response":{"id":"resp_1","model":"grok-4.20-multi-agent-0309","status":"completed","output":[{"id":"ws_1","type":"web_search_call","status":"completed","action":{"query":"latest world news"}},{"id":"ws_2","type":"web_search_call","status":"completed","action":{"query":"domestic news"}}]}}`, "", "",
+	}, "\n")
+	converted, err := io.ReadAll(ConvertResponseStream(io.NopCloser(strings.NewReader(stream)), OperationChat))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(converted)
+	for _, expected := range []string{
+		`🔎 Web search: latest world news\n`,
+		`✓ Web search completed\n`,
+		`🔎 X search: breaking news\n`,
+		`⚠ X search failed\n`,
+		`🔎 Code interpreter started\n`,
+		`✓ Code interpreter completed\n`,
+		`🔎 Web search: domestic news\n`,
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("missing server-tool progress %q:\n%s", expected, text)
+		}
+	}
+	if strings.Count(text, `latest world news`) != 1 || strings.Count(text, `"reasoning_content"`) != 8 {
+		t.Fatalf("server-tool progress was not deduplicated:\n%s", text)
+	}
+	if strings.Contains(text, `"tool_calls"`) {
+		t.Fatalf("server-executed tools must not be emitted as client tool_calls:\n%s", text)
+	}
+}
+
+func TestConvertResponsesStreamMessagesDoesNotReceiveChatProgressExtension(t *testing.T) {
+	stream := strings.Join([]string{
+		`event: response.output_item.added`,
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"id":"xs_1","type":"x_search_call","status":"in_progress","action":{"query":"news"}}}`, "",
+		`event: response.output_item.done`,
+		`data: {"type":"response.output_item.done","output_index":0,"item":{"id":"xs_1","type":"x_search_call","status":"completed","action":{"query":"news"}}}`, "",
+		`event: response.completed`,
+		`data: {"type":"response.completed","response":{"status":"completed"}}`, "", "",
+	}, "\n")
+	converted, err := io.ReadAll(ConvertResponseStream(io.NopCloser(strings.NewReader(stream)), OperationMessages))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := string(converted); strings.Contains(text, "reasoning_content") || strings.Contains(text, "X search") {
+		t.Fatalf("chat-only progress leaked into Messages:\n%s", text)
+	}
+}
+
 func TestConvertResponsesStreamMessagesInputTokens(t *testing.T) {
 	stream := strings.Join([]string{
 		`event: response.created`,

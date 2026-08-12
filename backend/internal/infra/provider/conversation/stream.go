@@ -36,30 +36,31 @@ func ConvertResponseStreamWithOptions(source io.ReadCloser, operation string, op
 }
 
 type streamConverter struct {
-	writer            io.Writer
-	operation         string
-	id                string
-	model             string
-	created           int64
-	started           bool
-	finished          bool
-	textStarted       bool
-	textIndex         int
-	thinkingStarted   bool
-	thinkingClosed    bool
-	thinkingIndex     int
-	thinkingItemID    string
-	nextIndex         int
-	tools             map[string]streamTool
-	webSearch         []webSearchCall
-	webSearchEmitted  map[string]bool
-	deferSearchText   bool
-	pendingSearchText strings.Builder
-	usage             responseUsage
-	options           ResponseOptions
-	stopFilter        *anthropicStreamStopFilter
-	stopSequence      string
-	refused           bool
+	writer             io.Writer
+	operation          string
+	id                 string
+	model              string
+	created            int64
+	started            bool
+	finished           bool
+	textStarted        bool
+	textIndex          int
+	thinkingStarted    bool
+	thinkingClosed     bool
+	thinkingIndex      int
+	thinkingItemID     string
+	nextIndex          int
+	tools              map[string]streamTool
+	serverToolProgress map[string]serverToolProgress
+	webSearch          []webSearchCall
+	webSearchEmitted   map[string]bool
+	deferSearchText    bool
+	pendingSearchText  strings.Builder
+	usage              responseUsage
+	options            ResponseOptions
+	stopFilter         *anthropicStreamStopFilter
+	stopSequence       string
+	refused            bool
 }
 
 type streamTool struct {
@@ -74,9 +75,10 @@ type streamTool struct {
 func newStreamConverter(writer io.Writer, operation string, options ResponseOptions) *streamConverter {
 	return &streamConverter{
 		writer: writer, operation: operation, created: time.Now().Unix(), tools: make(map[string]streamTool),
-		webSearchEmitted: make(map[string]bool),
-		deferSearchText:  operation == OperationMessages && options.AnthropicWebSearch,
-		options:          options, stopFilter: newAnthropicStreamStopFilter(options.StopSequences),
+		serverToolProgress: make(map[string]serverToolProgress),
+		webSearchEmitted:   make(map[string]bool),
+		deferSearchText:    operation == OperationMessages && options.AnthropicWebSearch,
+		options:            options, stopFilter: newAnthropicStreamStopFilter(options.StopSequences),
 	}
 }
 
@@ -263,6 +265,11 @@ func (c *streamConverter) handle(event string, data []byte) error {
 	case "response.output_item.added":
 		var item responseItem
 		_ = json.Unmarshal(root["item"], &item)
+		var outputIndex int
+		_ = json.Unmarshal(root["output_index"], &outputIndex)
+		if c.operation == OperationChat && isChatServerToolItem(item) {
+			return c.chatServerToolUpdate(item, outputIndex, false)
+		}
 		if item.Type == "reasoning" && c.operation == OperationMessages && c.options.AnthropicThinking {
 			return c.thinkingStart(item.ID)
 		}
@@ -275,8 +282,6 @@ func (c *streamConverter) handle(event string, data []byte) error {
 		if item.Type != "function_call" {
 			return nil
 		}
-		var outputIndex int
-		_ = json.Unmarshal(root["output_index"], &outputIndex)
 		return c.toolStart(item, outputIndex)
 	case "response.function_call_arguments.delta":
 		var itemID, delta string
@@ -291,6 +296,11 @@ func (c *streamConverter) handle(event string, data []byte) error {
 	case "response.output_item.done":
 		var item responseItem
 		_ = json.Unmarshal(root["item"], &item)
+		var outputIndex int
+		_ = json.Unmarshal(root["output_index"], &outputIndex)
+		if c.operation == OperationChat && isChatServerToolItem(item) {
+			return c.chatServerToolUpdate(item, outputIndex, true)
+		}
 		if item.Type == "function_call" {
 			return c.toolArgumentsDone(item.ID, item.Arguments)
 		}
@@ -306,6 +316,15 @@ func (c *streamConverter) handle(event string, data []byte) error {
 		var response responseEnvelope
 		_ = json.Unmarshal(root["response"], &response)
 		c.setResponse(response)
+		if c.operation == OperationChat {
+			for index, item := range response.Output {
+				if isChatServerToolItem(item) {
+					if err := c.chatServerToolUpdate(item, index, true); err != nil {
+						return err
+					}
+				}
+			}
+		}
 		if c.operation == OperationMessages && c.options.AnthropicWebSearch {
 			parsed := parseResponse(response)
 			for _, call := range parsed.WebSearch {
