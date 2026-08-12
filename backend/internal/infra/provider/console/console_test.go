@@ -55,6 +55,14 @@ func TestCatalogContainsAllConsoleModelsAndAliases(t *testing.T) {
 		{publicID: "Console/grok-imagine-image-quality-2k", capability: modeldomain.CapabilityImageEdit}: "grok-imagine-image-quality",
 		{publicID: "Console/grok-imagine-image-2k", capability: modeldomain.CapabilityImage}:             "grok-imagine-image",
 		{publicID: "Console/grok-imagine-image-2k", capability: modeldomain.CapabilityImageEdit}:         "grok-imagine-image",
+		{publicID: "Console/gpt-image-1", capability: modeldomain.CapabilityImage}:                        "grok-imagine-image-quality",
+		{publicID: "Console/gpt-image-1", capability: modeldomain.CapabilityImageEdit}:                    "grok-imagine-image-quality",
+		{publicID: "Console/gpt-image-1.5", capability: modeldomain.CapabilityImage}:                      "grok-imagine-image-quality",
+		{publicID: "Console/gpt-image-1.5", capability: modeldomain.CapabilityImageEdit}:                  "grok-imagine-image-quality",
+		{publicID: "Console/dall-e-2", capability: modeldomain.CapabilityImage}:                           "grok-imagine-image",
+		{publicID: "Console/dall-e-2", capability: modeldomain.CapabilityImageEdit}:                       "grok-imagine-image",
+		{publicID: "Console/dall-e-3", capability: modeldomain.CapabilityImage}:                           "grok-imagine-image",
+		{publicID: "Console/dall-e-3", capability: modeldomain.CapabilityImageEdit}:                       "grok-imagine-image",
 		{publicID: "Console/grok-imagine-video-1.5-console", capability: modeldomain.CapabilityVideo}:    "grok-imagine-video",
 	}
 	routes := Routes()

@@ -3,6 +3,7 @@ package inference
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"io"
 	"math"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -153,18 +155,21 @@ type imageGenerationRequest struct {
 	ResponseFormat string          `json:"response_format"`
 	StorageOptions json.RawMessage `json:"storage_options"`
 	Stream         bool            `json:"stream"`
+	Image          json.RawMessage `json:"image"`
+	Images         json.RawMessage `json:"images"`
 }
 
 type imageEditJSONImage struct {
-	URL    string `json:"url"`
-	FileID string `json:"file_id"`
+	URL      string `json:"url"`
+	ImageURL string `json:"image_url"`
+	FileID   string `json:"file_id"`
 }
 
 type imageEditJSONRequest struct {
-	Model          string               `json:"model"`
-	Prompt         string               `json:"prompt"`
-	Image          *imageEditJSONImage  `json:"image"`
-	Images         []imageEditJSONImage `json:"images"`
+	Model          string          `json:"model"`
+	Prompt         string          `json:"prompt"`
+	Image          json.RawMessage `json:"image"`
+	Images         json.RawMessage `json:"images"`
 	Count          *int                 `json:"n"`
 	Size           string               `json:"size"`
 	AspectRatio    string               `json:"aspect_ratio"`
@@ -850,13 +855,41 @@ func (h *Handler) generateImage(c *gin.Context) {
 			return
 		}
 	}
+	aspectRatio, err := compatibleImageAspectRatio(request.AspectRatio, request.Size)
+	if err != nil {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", err.Error())
+		return
+	}
+	imageURLs, err := parseJSONImageReferences(request.Image, request.Images)
+	if err != nil {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if len(imageURLs) > 8 {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "image 与 images 合计不能超过 8 张")
+		return
+	}
 	clientKey, requestID, ok := requestIdentity(c)
 	if !ok {
 		return
 	}
+	if len(imageURLs) > 0 {
+		result, err := h.gateway.EditImage(c.Request.Context(), gateway.ImageEditInput{
+			RequestID: requestID, ClientKey: clientKey, PublicModel: request.Model, Prompt: request.Prompt,
+			ImageURLs: imageURLs, Count: count, AspectRatio: aspectRatio,
+			Resolution: request.Resolution, ResponseFormat: request.ResponseFormat,
+			Streaming: request.Stream, PartialImages: partialImages,
+		})
+		if err != nil {
+			writeGatewayError(c, err)
+			return
+		}
+		h.writeResult(c, result, request.Stream, streamProtocolImage)
+		return
+	}
 	result, err := h.gateway.GenerateImage(c.Request.Context(), gateway.ImageGenerationInput{
 		RequestID: requestID, ClientKey: clientKey, PublicModel: request.Model, Prompt: request.Prompt,
-		Count: count, Size: request.Size, AspectRatio: request.AspectRatio,
+		Count: count, AspectRatio: aspectRatio,
 		Resolution: request.Resolution, ResponseFormat: request.ResponseFormat,
 		Streaming: request.Stream, PartialImages: partialImages,
 	})
@@ -956,17 +989,13 @@ func copyMedia(writer io.Writer, source io.Reader, limit int64) error {
 
 func (h *Handler) editImage(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, h.maxBodyBytes)
-	if !isJSONRequest(c) {
-		writeOpenAIError(c, http.StatusUnsupportedMediaType, "invalid_request", "图片编辑仅支持 application/json")
-		return
-	}
-	var request imageEditJSONRequest
-	if err := decodeSingleJSON(c.Request.Body, &request, false); err != nil {
-		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "图片编辑 JSON 请求无效")
-		return
-	}
-	if value := bytes.TrimSpace(request.StorageOptions); len(value) > 0 && !bytes.Equal(value, []byte("null")) {
-		writeOpenAIError(c, http.StatusBadRequest, "unsupported_parameter", "当前兼容层暂不支持 storage_options")
+	request, imageURLs, err := h.parseCompatibleImageEditRequest(c)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, errUnsupportedImageMediaType) {
+			status = http.StatusUnsupportedMediaType
+		}
+		writeOpenAIError(c, status, "invalid_request", err.Error())
 		return
 	}
 	model := strings.TrimSpace(request.Model)
@@ -974,28 +1003,6 @@ func (h *Handler) editImage(c *gin.Context) {
 	count := 1
 	if request.Count != nil {
 		count = *request.Count
-	}
-	inputs := append([]imageEditJSONImage(nil), request.Images...)
-	if request.Image != nil {
-		inputs = append([]imageEditJSONImage{*request.Image}, inputs...)
-	}
-	if len(inputs) == 0 || len(inputs) > 8 {
-		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "image 或 images 数量必须在 1 到 8 之间")
-		return
-	}
-	imageURLs := make([]string, 0, len(inputs))
-	for _, input := range inputs {
-		if strings.TrimSpace(input.FileID) != "" {
-			writeOpenAIError(c, http.StatusBadRequest, "unsupported_parameter", "当前暂不支持 image.file_id，请使用 image.url")
-			return
-		}
-		if value := strings.TrimSpace(input.URL); value != "" {
-			imageURLs = append(imageURLs, value)
-		}
-	}
-	if len(imageURLs) != len(inputs) {
-		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "每个 image 都必须提供有效 url")
-		return
 	}
 	if model == "" || prompt == "" {
 		writeOpenAIError(c, http.StatusBadRequest, "invalid_request", "图片编辑缺少有效 model 或 prompt")
@@ -1017,14 +1024,9 @@ func (h *Handler) editImage(c *gin.Context) {
 			return
 		}
 	}
-	aspectRatio := strings.ToLower(strings.TrimSpace(request.AspectRatio))
-	size := strings.ToLower(strings.TrimSpace(request.Size))
-	if aspectRatio != "" && !validImageAspectRatio(aspectRatio) {
-		writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "aspect_ratio 不受支持")
-		return
-	}
-	if size != "" && !validImageEditSize(size) {
-		writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", "size 必须是 auto、1024x1024、1024x1536 或 1536x1024")
+	aspectRatio, err := compatibleImageAspectRatio(request.AspectRatio, request.Size)
+	if err != nil {
+		writeOpenAIError(c, http.StatusBadRequest, "invalid_parameter", err.Error())
 		return
 	}
 	resolution := strings.ToLower(strings.TrimSpace(request.Resolution))
@@ -1041,7 +1043,7 @@ func (h *Handler) editImage(c *gin.Context) {
 	}
 	result, err := h.gateway.EditImage(c.Request.Context(), gateway.ImageEditInput{
 		RequestID: requestID, ClientKey: clientKey, PublicModel: model, Prompt: prompt,
-		ImageURLs: imageURLs, Count: count, Size: size, AspectRatio: aspectRatio,
+		ImageURLs: imageURLs, Count: count, AspectRatio: aspectRatio,
 		Resolution: resolution, ResponseFormat: request.ResponseFormat,
 		Streaming: request.Stream, PartialImages: partialImages,
 	})
@@ -1050,6 +1052,237 @@ func (h *Handler) editImage(c *gin.Context) {
 		return
 	}
 	h.writeResult(c, result, request.Stream, streamProtocolImage)
+}
+
+var errUnsupportedImageMediaType = errors.New("图片编辑仅支持 application/json 或 multipart/form-data")
+
+func (h *Handler) parseCompatibleImageEditRequest(c *gin.Context) (imageEditJSONRequest, []string, error) {
+	mediaType, _, err := mime.ParseMediaType(c.GetHeader("Content-Type"))
+	if err != nil {
+		return imageEditJSONRequest{}, nil, errUnsupportedImageMediaType
+	}
+	switch strings.ToLower(mediaType) {
+	case "application/json":
+		var request imageEditJSONRequest
+		if err := decodeSingleJSON(c.Request.Body, &request, false); err != nil {
+			return request, nil, errors.New("图片编辑 JSON 请求无效")
+		}
+		if value := bytes.TrimSpace(request.StorageOptions); len(value) > 0 && !bytes.Equal(value, []byte("null")) {
+			return request, nil, errors.New("当前兼容层暂不支持 storage_options")
+		}
+		images, err := parseJSONImageReferences(request.Image, request.Images)
+		if err != nil {
+			return request, nil, err
+		}
+		if len(images) == 0 || len(images) > 8 {
+			return request, nil, errors.New("image 或 images 数量必须在 1 到 8 之间")
+		}
+		return request, images, nil
+	case "multipart/form-data":
+		return h.parseMultipartImageEditRequest(c)
+	default:
+		return imageEditJSONRequest{}, nil, errUnsupportedImageMediaType
+	}
+}
+
+func (h *Handler) parseMultipartImageEditRequest(c *gin.Context) (imageEditJSONRequest, []string, error) {
+	memoryLimit := h.maxBodyBytes
+	if memoryLimit <= 0 || memoryLimit > 8<<20 {
+		memoryLimit = 8 << 20
+	}
+	if err := c.Request.ParseMultipartForm(memoryLimit); err != nil {
+		return imageEditJSONRequest{}, nil, fmt.Errorf("解析 multipart 图片编辑请求: %w", err)
+	}
+	if c.Request.MultipartForm != nil {
+		defer c.Request.MultipartForm.RemoveAll()
+	}
+	form := c.Request.MultipartForm
+	request := imageEditJSONRequest{
+		Model:          c.PostForm("model"),
+		Prompt:         c.PostForm("prompt"),
+		Size:           c.PostForm("size"),
+		AspectRatio:    c.PostForm("aspect_ratio"),
+		Resolution:     c.PostForm("resolution"),
+		ResponseFormat: c.PostForm("response_format"),
+	}
+	if value := strings.TrimSpace(c.PostForm("n")); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return request, nil, errors.New("n 必须是整数")
+		}
+		request.Count = &parsed
+	}
+	if value := strings.TrimSpace(c.PostForm("stream")); value != "" {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return request, nil, errors.New("stream 必须是布尔值")
+		}
+		request.Stream = parsed
+	}
+	if value := strings.TrimSpace(c.PostForm("partial_images")); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return request, nil, errors.New("partial_images 必须是整数")
+		}
+		request.PartialImages = &parsed
+	}
+	images := make([]string, 0, 8)
+	for _, key := range []string{"image", "image[]", "images", "images[]"} {
+		for _, value := range form.Value[key] {
+			if value = strings.TrimSpace(value); value != "" {
+				images = append(images, value)
+			}
+		}
+		for _, header := range form.File[key] {
+			value, err := multipartImageDataURL(header, h.maxBodyBytes)
+			if err != nil {
+				return request, nil, err
+			}
+			images = append(images, value)
+		}
+	}
+	if len(images) == 0 || len(images) > 8 {
+		return request, nil, errors.New("image 或 images 数量必须在 1 到 8 之间")
+	}
+	return request, images, nil
+}
+
+func multipartImageDataURL(header *multipart.FileHeader, limit int64) (string, error) {
+	file, err := header.Open()
+	if err != nil {
+		return "", fmt.Errorf("打开上传图片 %q: %w", header.Filename, err)
+	}
+	defer file.Close()
+	if limit <= 0 {
+		limit = 64 << 20
+	}
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil {
+		return "", fmt.Errorf("读取上传图片 %q: %w", header.Filename, err)
+	}
+	if int64(len(data)) > limit {
+		return "", fmt.Errorf("上传图片 %q 超过请求大小限制", header.Filename)
+	}
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(header.Header.Get("Content-Type"), ";")[0]))
+	detected := strings.ToLower(strings.TrimSpace(strings.Split(http.DetectContentType(data), ";")[0]))
+	if strings.HasPrefix(detected, "image/") {
+		contentType = detected
+	}
+	if !strings.HasPrefix(contentType, "image/") {
+		return "", fmt.Errorf("上传文件 %q 不是有效图片", header.Filename)
+	}
+	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(data), nil
+}
+
+func parseJSONImageReferences(values ...json.RawMessage) ([]string, error) {
+	result := make([]string, 0, 4)
+	for _, value := range values {
+		value = bytes.TrimSpace(value)
+		if len(value) == 0 || bytes.Equal(value, []byte("null")) {
+			continue
+		}
+		items := []json.RawMessage{value}
+		if value[0] == '[' {
+			if err := json.Unmarshal(value, &items); err != nil {
+				return nil, errors.New("image 或 images 必须是图片引用或图片引用数组")
+			}
+		}
+		for _, item := range items {
+			urlValue, err := parseJSONImageReference(item)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, urlValue)
+		}
+	}
+	return result, nil
+}
+
+func parseJSONImageReference(raw json.RawMessage) (string, error) {
+	var direct string
+	if json.Unmarshal(raw, &direct) == nil {
+		if direct = strings.TrimSpace(direct); direct != "" {
+			return direct, nil
+		}
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return "", errors.New("每个 image 必须是 URL、data URL 或图片引用对象")
+	}
+	if fileID := rawJSONString(object["file_id"]); fileID != "" {
+		return "", errors.New("当前暂不支持 image.file_id，请使用 image.url 或 image.image_url")
+	}
+	for _, key := range []string{"url", "image_url"} {
+		value := rawJSONString(object[key])
+		if value == "" && len(object[key]) > 0 {
+			var nested struct {
+				URL string `json:"url"`
+			}
+			if json.Unmarshal(object[key], &nested) == nil {
+				value = strings.TrimSpace(nested.URL)
+			}
+		}
+		if value != "" {
+			return value, nil
+		}
+	}
+	return "", errors.New("每个 image 都必须提供有效 url 或 image_url")
+}
+
+func rawJSONString(raw json.RawMessage) string {
+	var value string
+	if json.Unmarshal(raw, &value) != nil {
+		return ""
+	}
+	return strings.TrimSpace(value)
+}
+
+func compatibleImageAspectRatio(aspectRatio, size string) (string, error) {
+	value := strings.ToLower(strings.TrimSpace(aspectRatio))
+	if value == "" {
+		value = strings.ToLower(strings.TrimSpace(size))
+	}
+	if value == "" || value == "auto" {
+		return "", nil
+	}
+	if strings.Contains(value, ":") {
+		if !validImageAspectRatio(value) {
+			return "", errors.New("aspect_ratio 不受支持")
+		}
+		return value, nil
+	}
+	widthText, heightText, ok := strings.Cut(value, "x")
+	if !ok {
+		return "", errors.New("size 必须是 auto、宽x高或受支持的宽高比")
+	}
+	width, widthErr := strconv.ParseFloat(strings.TrimSpace(widthText), 64)
+	height, heightErr := strconv.ParseFloat(strings.TrimSpace(heightText), 64)
+	if widthErr != nil || heightErr != nil || width <= 0 || height <= 0 || math.IsInf(width, 0) || math.IsInf(height, 0) {
+		return "", errors.New("size 必须包含有效的正数宽度和高度")
+	}
+	return nearestImageAspectRatio(width / height), nil
+}
+
+func nearestImageAspectRatio(target float64) string {
+	type candidate struct {
+		name  string
+		value float64
+	}
+	candidates := []candidate{
+		{name: "1:1", value: 1}, {name: "16:9", value: 16.0 / 9}, {name: "9:16", value: 9.0 / 16},
+		{name: "4:3", value: 4.0 / 3}, {name: "3:4", value: 3.0 / 4}, {name: "3:2", value: 3.0 / 2},
+		{name: "2:3", value: 2.0 / 3}, {name: "2:1", value: 2}, {name: "1:2", value: 0.5},
+		{name: "19.5:9", value: 19.5 / 9}, {name: "9:19.5", value: 9.0 / 19.5},
+		{name: "20:9", value: 20.0 / 9}, {name: "9:20", value: 9.0 / 20},
+	}
+	best := candidates[0]
+	bestDistance := math.Abs(math.Log(target / best.value))
+	for _, value := range candidates[1:] {
+		if distance := math.Abs(math.Log(target / value.value)); distance < bestDistance {
+			best, bestDistance = value, distance
+		}
+	}
+	return best.name
 }
 
 func requestIdentity(c *gin.Context) (clientkeydomain.Key, string, bool) {

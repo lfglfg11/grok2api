@@ -279,6 +279,8 @@ Console 使用当前版本内置目录。对话为无状态转发；图片和视
 | `grok-imagine-image-quality` | 图像、图像编辑 | Images Generations、Images Edits |
 | `grok-imagine-image-2k` | 图像、图像编辑 | 固定使用 2K 分辨率 |
 | `grok-imagine-image-quality-2k` | 图像、图像编辑 | 固定使用 2K 分辨率 |
+| `gpt-image-1`、`gpt-image-1.5` | 图像、图像编辑 | `grok-imagine-image-quality` 的 OpenAI 兼容别名 |
+| `dall-e-2`、`dall-e-3` | 图像、图像编辑 | `grok-imagine-image` 的 OpenAI 兼容别名 |
 | `grok-imagine-video` | 视频 | Videos |
 
 同一个 Console 图片模型的生成与编辑能力会聚合展示为一条逻辑模型，不需要创建 `-edit` 模型副本。
@@ -313,6 +315,8 @@ Authorization: Bearer g2a_xxx_xxx
 | `POST` | `/v1/images/generations`、`/v1/images/edits` | 生成或编辑图片 |
 | `POST`、`GET` | `/v1/videos/*` | 创建和查询视频任务 |
 | `GET` | `/v1/media/images/{asset_id}`、`/v1/media/videos/{asset_id}` | 读取归档媒体 |
+
+Images 兼容层接受 OpenAI 风格的 JSON 字段。`/v1/images/generations` 在出现 `image` 或 `images` 时会自动执行图片编辑；`/v1/images/edits` 同时接受 JSON 和 multipart，并识别 `image`、`image[]`、`images`、`images[]`。`size` 可以是 `auto`、`16:9` 等受支持比例，或任意正数 `宽x高`，像素尺寸会折算为最接近的 Grok 宽高比。`quality`、`background`、`output_compression`、`mask`、`user` 等 OpenAI 专用参数允许传入但会被忽略。
 
 stored response 和 compact 取决于最终 Provider。登录管理端后可在 `/docs` 查看当前模型与调用示例；仅在 `server.swaggerEnabled: true` 时提供 Swagger。
 

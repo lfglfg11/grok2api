@@ -278,6 +278,8 @@ Console uses the catalog built into the current release. Conversation forwarding
 | `grok-imagine-image-quality` | Image, Image Edit | Images Generations, Images Edits |
 | `grok-imagine-image-2k` | Image, Image Edit | Always uses 2K resolution |
 | `grok-imagine-image-quality-2k` | Image, Image Edit | Always uses 2K resolution |
+| `gpt-image-1`, `gpt-image-1.5` | Image, Image Edit | OpenAI-compatible aliases for `grok-imagine-image-quality` |
+| `dall-e-2`, `dall-e-3` | Image, Image Edit | OpenAI-compatible aliases for `grok-imagine-image` |
 | `grok-imagine-video` | Video | Videos |
 
 Generation and editing capabilities for the same Console image model are grouped into one logical model row; no separate `-edit` model copy is required.
@@ -312,6 +314,8 @@ Authorization: Bearer g2a_xxx_xxx
 | `POST` | `/v1/images/generations`, `/v1/images/edits` | Generate or edit images |
 | `POST`, `GET` | `/v1/videos/*` | Create and inspect video jobs |
 | `GET` | `/v1/media/images/{asset_id}`, `/v1/media/videos/{asset_id}` | Read archived media |
+
+The Images compatibility layer accepts OpenAI-style JSON fields. `/v1/images/generations` also performs an edit when `image` or `images` is present. `/v1/images/edits` accepts JSON or multipart uploads using `image`, `image[]`, `images`, or `images[]`. `size` may be `auto`, a supported ratio such as `16:9`, or any positive `WIDTHxHEIGHT`; pixel dimensions are mapped to the closest Grok aspect ratio. OpenAI-only controls such as `quality`, `background`, `output_compression`, `mask`, and `user` are accepted and ignored.
 
 Stored responses and compact depend on the selected Provider. The signed-in admin console provides live examples at `/docs`; Swagger is available only when `server.swaggerEnabled: true`.
 

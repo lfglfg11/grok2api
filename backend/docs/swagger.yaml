@@ -55,6 +55,10 @@ definitions:
         type: string
       image:
         $ref: '#/definitions/httpserver.SwaggerImageReference'
+      images:
+        items:
+          $ref: '#/definitions/httpserver.SwaggerImageReference'
+        type: array
       model:
         example: grok-imagine-image-edit
         type: string
@@ -66,6 +70,9 @@ definitions:
         type: integer
       prompt:
         example: Change the background to black
+        type: string
+      quality:
+        example: high
         type: string
       resolution:
         example: 1k
@@ -85,6 +92,16 @@ definitions:
       aspect_ratio:
         example: "16:9"
         type: string
+      background:
+        example: opaque
+        type: string
+      image:
+        example: https://example.com/source.png
+        type: string
+      images:
+        items:
+          type: string
+        type: array
       model:
         example: grok-imagine-image-quality
         type: string
@@ -97,11 +114,17 @@ definitions:
       prompt:
         example: A cinematic city at night
         type: string
+      quality:
+        example: high
+        type: string
       resolution:
         example: 2k
         type: string
       response_format:
         example: url
+        type: string
+      size:
+        example: 1024x1024
         type: string
       stream:
         example: false
@@ -109,6 +132,9 @@ definitions:
     type: object
   httpserver.SwaggerImageReference:
     properties:
+      image_url:
+        example: https://example.com/source.png
+        type: string
       url:
         example: https://example.com/source.png
         type: string
@@ -245,6 +271,7 @@ paths:
     post:
       consumes:
       - application/json
+      - multipart/form-data
       parameters:
       - description: 请求
         in: body

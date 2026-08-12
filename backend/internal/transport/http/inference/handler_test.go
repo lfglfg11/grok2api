@@ -2,10 +2,12 @@ package inference
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
 	"math"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -560,7 +562,7 @@ func TestImageEditAcceptsOfficialJSONShape(t *testing.T) {
 		{name: "too many partial images", body: `{"model":"grok-imagine-image-edit","prompt":"test","stream":true,"partial_images":4,"image":{"url":"https://example.com/input.png"}}`},
 		{name: "partial images require stream", body: `{"model":"grok-imagine-image-edit","prompt":"test","partial_images":1,"image":{"url":"https://example.com/input.png"}}`},
 		{name: "invalid aspect ratio", body: `{"model":"grok-imagine-image-edit","prompt":"test","aspect_ratio":"7:5","image":{"url":"https://example.com/input.png"}}`},
-		{name: "invalid size", body: `{"model":"grok-imagine-image-edit","prompt":"test","size":"512x512","image":{"url":"https://example.com/input.png"}}`},
+		{name: "invalid size", body: `{"model":"grok-imagine-image-edit","prompt":"test","size":"wide","image":{"url":"https://example.com/input.png"}}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodPost, "/v1/images/edits", strings.NewReader(test.body))
@@ -573,12 +575,63 @@ func TestImageEditAcceptsOfficialJSONShape(t *testing.T) {
 		})
 	}
 
-	multipartRequest := httptest.NewRequest(http.MethodPost, "/v1/images/edits", strings.NewReader("ignored"))
-	multipartRequest.Header.Set("Content-Type", "multipart/form-data; boundary=test")
+	var multipartBody bytes.Buffer
+	multipartWriter := multipart.NewWriter(&multipartBody)
+	_ = multipartWriter.WriteField("model", "grok-imagine-image-2k")
+	_ = multipartWriter.WriteField("prompt", "edit")
+	_ = multipartWriter.WriteField("size", "2048x2048")
+	imagePart, err := multipartWriter.CreateFormFile("image[]", "input.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pngData, _ := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	_, _ = imagePart.Write(pngData)
+	_ = multipartWriter.Close()
+	multipartRequest := httptest.NewRequest(http.MethodPost, "/v1/images/edits", &multipartBody)
+	multipartRequest.Header.Set("Content-Type", multipartWriter.FormDataContentType())
 	multipartRecorder := httptest.NewRecorder()
 	router.ServeHTTP(multipartRecorder, multipartRequest)
-	if multipartRecorder.Code != http.StatusUnsupportedMediaType || !strings.Contains(multipartRecorder.Body.String(), "application/json") {
+	if multipartRecorder.Code != http.StatusUnauthorized || strings.Contains(multipartRecorder.Body.String(), "multipart") {
 		t.Fatalf("multipart status=%d body=%s", multipartRecorder.Code, multipartRecorder.Body.String())
+	}
+}
+
+func TestOpenAIImageCompatibilityParsing(t *testing.T) {
+	for input, want := range map[string]string{
+		"2048x2048": "1:1",
+		"1024x1536": "2:3",
+		"1600x900":  "16:9",
+		"16:9":      "16:9",
+		"auto":      "",
+	} {
+		got, err := compatibleImageAspectRatio("", input)
+		if err != nil || got != want {
+			t.Errorf("compatibleImageAspectRatio(%q) = %q, %v; want %q", input, got, err, want)
+		}
+	}
+	images, err := parseJSONImageReferences(
+		json.RawMessage(`"https://example.com/one.png"`),
+		json.RawMessage(`[{"image_url":"https://example.com/two.png"},{"url":"data:image/png;base64,AA=="}]`),
+	)
+	if err != nil || len(images) != 3 || images[1] != "https://example.com/two.png" {
+		t.Fatalf("images=%#v err=%v", images, err)
+	}
+}
+
+func TestImageGenerationAcceptsOpenAIEditExtensionAndIgnoredOptions(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	NewHandler(nil, nil, 1<<20).Register(router.Group("/v1"))
+	request := httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{
+		"model":"gpt-image-1.5","prompt":"put these in a basket","size":"2048x2048",
+		"images":[{"image_url":"https://example.com/one.png"},{"url":"https://example.com/two.png"}],
+		"quality":"high","background":"opaque","output_compression":100,"user":"ignored"
+	}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("OpenAI-compatible generation/edit shape status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

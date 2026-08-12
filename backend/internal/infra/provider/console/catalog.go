@@ -41,6 +41,12 @@ var mediaCatalog = []struct {
 	// forces their resolution before dispatching the request.
 	{PublicID: "grok-imagine-image-quality-2k", UpstreamModel: "grok-imagine-image-quality", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
 	{PublicID: "grok-imagine-image-2k", UpstreamModel: "grok-imagine-image", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
+	// OpenAI Images compatibility model IDs. They expose the same Console image
+	// capabilities while retaining the original Grok upstream model names.
+	{PublicID: "gpt-image-1", UpstreamModel: "grok-imagine-image-quality", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
+	{PublicID: "gpt-image-1.5", UpstreamModel: "grok-imagine-image-quality", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
+	{PublicID: "dall-e-2", UpstreamModel: "grok-imagine-image", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
+	{PublicID: "dall-e-3", UpstreamModel: "grok-imagine-image", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
 	{PublicID: "grok-imagine-video-1.5-console", UpstreamModel: "grok-imagine-video", Capabilities: []modeldomain.Capability{modeldomain.CapabilityVideo}},
 }
 

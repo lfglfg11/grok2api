@@ -33,33 +33,41 @@ type SwaggerMessagesRequest struct {
 
 // SwaggerImageGenerationRequest 表示图片生成请求。
 type SwaggerImageGenerationRequest struct {
-	Model          string `json:"model" example:"grok-imagine-image-quality"`
-	Prompt         string `json:"prompt" example:"A cinematic city at night"`
-	N              int    `json:"n" example:"1"`
-	AspectRatio    string `json:"aspect_ratio,omitempty" example:"16:9"`
-	Resolution     string `json:"resolution,omitempty" example:"2k"`
-	ResponseFormat string `json:"response_format,omitempty" example:"url"`
-	Stream         bool   `json:"stream,omitempty" example:"false"`
-	PartialImages  int    `json:"partial_images,omitempty" example:"0"`
+	Model          string   `json:"model" example:"grok-imagine-image-quality"`
+	Prompt         string   `json:"prompt" example:"A cinematic city at night"`
+	N              int      `json:"n" example:"1"`
+	Size           string   `json:"size,omitempty" example:"1024x1024"`
+	AspectRatio    string   `json:"aspect_ratio,omitempty" example:"16:9"`
+	Resolution     string   `json:"resolution,omitempty" example:"2k"`
+	ResponseFormat string   `json:"response_format,omitempty" example:"url"`
+	Image          string   `json:"image,omitempty" example:"https://example.com/source.png"`
+	Images         []string `json:"images,omitempty"`
+	Quality        string   `json:"quality,omitempty" example:"high"`
+	Background     string   `json:"background,omitempty" example:"opaque"`
+	Stream         bool     `json:"stream,omitempty" example:"false"`
+	PartialImages  int      `json:"partial_images,omitempty" example:"0"`
 }
 
 // SwaggerImageReference 表示图片 URL 输入。
 type SwaggerImageReference struct {
-	URL string `json:"url" example:"https://example.com/source.png"`
+	URL      string `json:"url,omitempty" example:"https://example.com/source.png"`
+	ImageURL string `json:"image_url,omitempty" example:"https://example.com/source.png"`
 }
 
 // SwaggerImageEditRequest 表示图片编辑请求。
 type SwaggerImageEditRequest struct {
-	Model          string                `json:"model" example:"grok-imagine-image-edit"`
-	Prompt         string                `json:"prompt" example:"Change the background to black"`
-	Image          SwaggerImageReference `json:"image"`
-	N              int                   `json:"n" example:"1"`
-	Size           string                `json:"size,omitempty" example:"1024x1024"`
-	AspectRatio    string                `json:"aspect_ratio,omitempty" example:"1:1"`
-	Resolution     string                `json:"resolution,omitempty" example:"1k"`
-	ResponseFormat string                `json:"response_format,omitempty" example:"url"`
-	Stream         bool                  `json:"stream,omitempty" example:"false"`
-	PartialImages  int                   `json:"partial_images,omitempty" example:"0"`
+	Model          string                  `json:"model" example:"grok-imagine-image-edit"`
+	Prompt         string                  `json:"prompt" example:"Change the background to black"`
+	Image          SwaggerImageReference   `json:"image"`
+	Images         []SwaggerImageReference `json:"images,omitempty"`
+	N              int                     `json:"n" example:"1"`
+	Size           string                  `json:"size,omitempty" example:"1024x1024"`
+	AspectRatio    string                  `json:"aspect_ratio,omitempty" example:"1:1"`
+	Resolution     string                  `json:"resolution,omitempty" example:"1k"`
+	ResponseFormat string                  `json:"response_format,omitempty" example:"url"`
+	Quality        string                  `json:"quality,omitempty" example:"high"`
+	Stream         bool                    `json:"stream,omitempty" example:"false"`
+	PartialImages  int                     `json:"partial_images,omitempty" example:"0"`
 }
 
 // SwaggerVideoGenerationRequest 表示视频生成请求。
@@ -199,7 +207,7 @@ func swaggerGenerateImage() {}
 // @Summary 编辑图片
 // @Tags Images
 // @Security BearerAuth
-// @Accept json
+// @Accept json,mpfd
 // @Produce json
 // @Param request body SwaggerImageEditRequest true "请求"
 // @Success 200 {object} map[string]any
