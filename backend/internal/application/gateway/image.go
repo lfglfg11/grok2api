@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -81,13 +82,70 @@ func (s *Service) EditImage(ctx context.Context, input ImageEditInput) (*Result,
 		if !ok {
 			return nil, ErrNoAvailableAccount
 		}
-		return adapter.EditImage(executionCtx, provider.ImageEditRequest{
+		request := provider.ImageEditRequest{
 			Credential: credential, Model: upstream, Prompt: input.Prompt,
 			ImageURLs: input.ImageURLs, Count: input.Count, Size: input.Size, AspectRatio: input.AspectRatio,
 			Resolution: input.Resolution, ResponseFormat: input.ResponseFormat,
 			Streaming: input.Streaming, PartialImages: input.PartialImages,
-		})
+		}
+		if providerValue != accountdomain.ProviderConsole {
+			return adapter.EditImage(executionCtx, request)
+		}
+		return s.editImageWithMaterializationFallback(executionCtx, adapter, request, input.RequestID)
 	}, input.Streaming, input.Resolution, input.Count, len(input.ImageURLs))
+}
+
+// editImageWithMaterializationFallback follows the Console video input policy:
+// send remote URLs upstream first, and only materialize them after XAI explicitly
+// reports that it could not download an input image.
+func (s *Service) editImageWithMaterializationFallback(ctx context.Context, adapter provider.ImageEditAdapter, request provider.ImageEditRequest, affinity string) (*provider.Response, error) {
+	response, err := adapter.EditImage(ctx, request)
+	if err != nil || !isImageInputDownloadResponse(response) || s.mediaAssets == nil || !hasRemoteVideoReference(request.ImageURLs) {
+		return response, err
+	}
+	if response.Body != nil {
+		_ = response.Body.Close()
+	}
+	if s.logger != nil {
+		s.logger.Warn("image_input_materialization_fallback", "provider", adapter.Provider(), "status_code", response.StatusCode)
+	}
+
+	var fetchRemote func(context.Context, string) ([]byte, error)
+	if fetcher, supported := adapter.(provider.VideoInputImageFetcher); supported {
+		fetchRemote = func(fetchCtx context.Context, rawURL string) ([]byte, error) {
+			return fetcher.FetchVideoInputImage(fetchCtx, affinity, rawURL)
+		}
+	}
+	materialized, cleanup, materializeErr := s.materializeRemoteVideoReferences(ctx, request.ImageURLs, false, fetchRemote)
+	if materializeErr != nil {
+		return nil, fmt.Errorf("图片输入物化失败: %w", materializeErr)
+	}
+	defer cleanup()
+	request.ImageURLs = materialized
+
+	for attempt := 0; attempt < videoMaterializedAttempts; attempt++ {
+		response, err = adapter.EditImage(ctx, request)
+		if err != nil || !isImageInputDownloadResponse(response) || attempt+1 >= videoMaterializedAttempts {
+			return response, err
+		}
+		if response.Body != nil {
+			_ = response.Body.Close()
+		}
+		if waitErr := waitVideoMaterializedRetry(ctx, attempt); waitErr != nil {
+			return nil, waitErr
+		}
+	}
+	return response, err
+}
+
+func isImageInputDownloadResponse(response *provider.Response) bool {
+	if response == nil || response.Diagnostic == nil {
+		return false
+	}
+	lower := strings.ToLower(string(response.Diagnostic.Body))
+	return strings.Contains(lower, "image_download_error") ||
+		strings.Contains(lower, "image_download_interrupted") ||
+		strings.Contains(lower, "failed to download the provided image")
 }
 
 func (s *Service) executeImage(

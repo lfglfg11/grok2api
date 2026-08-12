@@ -170,7 +170,7 @@ func applyImageRequestHeaders(request *http.Request, parsed *url.URL, attempt in
 	request.Header.Set("Sec-Ch-Ua-Platform", `"Windows"`)
 	request.Header.Set("Upgrade-Insecure-Requests", "1")
 	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36")
-	switch attempt % 3 {
+	switch attempt % 6 {
 	case 0: // Browser navigation works for hosts that reject bare image clients.
 		request.Header.Set("Sec-Fetch-Site", "none")
 		request.Header.Set("Sec-Fetch-Mode", "navigate")
@@ -194,9 +194,7 @@ func applyImageRequestHeaders(request *http.Request, parsed *url.URL, attempt in
 		request.Header.Set("Sec-Fetch-Mode", "no-cors")
 		request.Header.Set("Sec-Fetch-Dest", "image")
 	case 4: // Explicitly no Referer or Origin.
-		request.Header.Set("Sec-Fetch-Site", "cross-site")
-		request.Header.Set("Sec-Fetch-Mode", "no-cors")
-		request.Header.Set("Sec-Fetch-Dest", "image")
+		request.Header.Set("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
 	case 5: // Self Referer fallback.
 		request.Header.Set("Referer", parsed.String())
 		request.Header.Set("Sec-Fetch-Site", "cross-site")

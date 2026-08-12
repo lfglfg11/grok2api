@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -92,6 +93,40 @@ func TestFetchImageRetriesTransientFailureThreeTimes(t *testing.T) {
 	})
 	if err == nil || calls != 1 {
 		t.Fatalf("non-retryable err=%v calls=%d", err, calls)
+	}
+}
+
+func TestApplyImageRequestHeadersUsesAllSixStrategies(t *testing.T) {
+	parsed, err := url.Parse("https://images.example.test/photo.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := make([]*http.Request, 6)
+	for attempt := range requests {
+		request, err := http.NewRequest(http.MethodGet, parsed.String(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		applyImageRequestHeaders(request, parsed, attempt)
+		requests[attempt] = request
+	}
+	if requests[0].Header.Get("Sec-Fetch-Mode") != "navigate" || requests[0].Header.Get("Sec-Fetch-User") != "?1" {
+		t.Fatalf("navigation strategy headers = %#v", requests[0].Header)
+	}
+	if requests[1].Header.Get("Sec-Fetch-Dest") != "image" || requests[1].Header.Get("Referer") != "" {
+		t.Fatalf("cross-site strategy headers = %#v", requests[1].Header)
+	}
+	if requests[2].Header.Get("Referer") != "https://images.example.test/" || requests[2].Header.Get("Origin") == "" {
+		t.Fatalf("same-origin strategy headers = %#v", requests[2].Header)
+	}
+	if requests[3].Header.Get("Origin") == "" || requests[3].Header.Get("Referer") != "" {
+		t.Fatalf("origin-only strategy headers = %#v", requests[3].Header)
+	}
+	if requests[4].Header.Get("Sec-Fetch-Dest") != "" || !strings.HasPrefix(requests[4].Header.Get("Accept"), "image/") {
+		t.Fatalf("minimal strategy headers = %#v", requests[4].Header)
+	}
+	if requests[5].Header.Get("Referer") != parsed.String() {
+		t.Fatalf("self-referer strategy headers = %#v", requests[5].Header)
 	}
 }
 
