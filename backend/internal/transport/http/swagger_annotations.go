@@ -33,47 +33,54 @@ type SwaggerMessagesRequest struct {
 
 // SwaggerImageGenerationRequest 表示图片生成请求。
 type SwaggerImageGenerationRequest struct {
-	Model          string `json:"model" example:"grok-imagine-image-quality"`
-	Prompt         string `json:"prompt" example:"A cinematic city at night"`
-	N              int    `json:"n" example:"1"`
-	AspectRatio    string `json:"aspect_ratio,omitempty" example:"16:9"`
-	Resolution     string `json:"resolution,omitempty" example:"2k"`
-	ResponseFormat string `json:"response_format,omitempty" example:"url"`
-	Stream         bool   `json:"stream,omitempty" example:"false"`
-	PartialImages  int    `json:"partial_images,omitempty" example:"0"`
+	Model          string   `json:"model" example:"grok-imagine-image-quality"`
+	Prompt         string   `json:"prompt" example:"A cinematic city at night"`
+	N              int      `json:"n" example:"1"`
+	Size           string   `json:"size,omitempty" example:"1024x1024"`
+	AspectRatio    string   `json:"aspect_ratio,omitempty" example:"16:9"`
+	Resolution     string   `json:"resolution,omitempty" example:"2k"`
+	ResponseFormat string   `json:"response_format,omitempty" example:"url"`
+	Image          string   `json:"image,omitempty" example:"https://example.com/source.png"`
+	Images         []string `json:"images,omitempty"`
+	Quality        string   `json:"quality,omitempty" example:"high"`
+	Stream         bool     `json:"stream,omitempty" example:"false"`
+	PartialImages  int      `json:"partial_images,omitempty" example:"0"`
 }
 
 // SwaggerImageReference 表示图片 URL 输入。
 type SwaggerImageReference struct {
-	URL string `json:"url" example:"https://example.com/source.png"`
+	URL      string `json:"url,omitempty" example:"https://example.com/source.png"`
+	ImageURL string `json:"image_url,omitempty" example:"https://example.com/source.png"`
 }
 
 // SwaggerImageEditRequest 表示图片编辑请求。
 type SwaggerImageEditRequest struct {
-	Model          string                `json:"model" example:"grok-imagine-image-edit"`
-	Prompt         string                `json:"prompt" example:"Change the background to black"`
-	Image          SwaggerImageReference `json:"image"`
-	N              int                   `json:"n" example:"1"`
-	Size           string                `json:"size,omitempty" example:"1024x1024"`
-	AspectRatio    string                `json:"aspect_ratio,omitempty" example:"1:1"`
-	Resolution     string                `json:"resolution,omitempty" example:"1k"`
-	ResponseFormat string                `json:"response_format,omitempty" example:"url"`
-	Stream         bool                  `json:"stream,omitempty" example:"false"`
-	PartialImages  int                   `json:"partial_images,omitempty" example:"0"`
+	Model          string                  `json:"model" example:"grok-imagine-image-edit"`
+	Prompt         string                  `json:"prompt" example:"Change the background to black"`
+	Image          SwaggerImageReference   `json:"image"`
+	Images         []SwaggerImageReference `json:"images,omitempty"`
+	N              int                     `json:"n" example:"1"`
+	Size           string                  `json:"size,omitempty" example:"1024x1024"`
+	AspectRatio    string                  `json:"aspect_ratio,omitempty" example:"1:1"`
+	Resolution     string                  `json:"resolution,omitempty" example:"1k"`
+	ResponseFormat string                  `json:"response_format,omitempty" example:"url"`
+	Quality        string                  `json:"quality,omitempty" example:"high"`
+	Stream         bool                    `json:"stream,omitempty" example:"false"`
+	PartialImages  int                     `json:"partial_images,omitempty" example:"0"`
 }
 
 // SwaggerVideoGenerationRequest 表示视频生成请求。
 // image 与 reference_images/reference_audios 互斥；参考图模式 resolution 最高 720p。
 type SwaggerVideoGenerationRequest struct {
-	Model            string                    `json:"model" example:"grok-imagine-video"`
-	Prompt           string                    `json:"prompt" example:"A cinematic tracking shot in the rain"`
-	Duration         int                       `json:"duration" example:"8"`
-	AspectRatio      string                    `json:"aspect_ratio,omitempty" example:"16:9"`
-	Resolution       string                    `json:"resolution,omitempty" example:"720p"`
-	Image            *SwaggerVideoMediaInput   `json:"image,omitempty"`
-	ReferenceImages  []SwaggerVideoMediaInput  `json:"reference_images,omitempty"`
-	ReferenceAudios  []SwaggerVideoAudioInput  `json:"reference_audios,omitempty"`
-	Video            *SwaggerVideoMediaInput   `json:"video,omitempty"`
+	Model           string                   `json:"model" example:"grok-imagine-video"`
+	Prompt          string                   `json:"prompt" example:"A cinematic tracking shot in the rain"`
+	Duration        int                      `json:"duration" example:"8"`
+	AspectRatio     string                   `json:"aspect_ratio,omitempty" example:"16:9"`
+	Resolution      string                   `json:"resolution,omitempty" example:"720p"`
+	Image           *SwaggerVideoMediaInput  `json:"image,omitempty"`
+	ReferenceImages []SwaggerVideoMediaInput `json:"reference_images,omitempty"`
+	ReferenceAudios []SwaggerVideoAudioInput `json:"reference_audios,omitempty"`
+	Video           *SwaggerVideoMediaInput  `json:"video,omitempty"`
 }
 
 // SwaggerVideoMediaInput 表示视频相关的图片/视频输入。
@@ -85,6 +92,22 @@ type SwaggerVideoMediaInput struct {
 // SwaggerVideoAudioInput 表示参考音频（内置 voice_id）。
 type SwaggerVideoAudioInput struct {
 	VoiceID string `json:"voice_id" example:"eve"`
+}
+
+// SwaggerCompatibleVideoRequest 表示 Sora/new-api 兼容的异步视频生成请求。
+// image/input_reference 表示首帧；images/reference_images 表示内容或风格参考图。
+type SwaggerCompatibleVideoRequest struct {
+	Model           string   `json:"model" example:"grok-imagine-video-1.5-console"`
+	Prompt          string   `json:"prompt" example:"A cinematic tracking shot in natural light"`
+	Seconds         int      `json:"seconds,omitempty" example:"15"`
+	Duration        int      `json:"duration,omitempty" example:"15"`
+	Size            string   `json:"size,omitempty" example:"1280x720"`
+	AspectRatio     string   `json:"aspect_ratio,omitempty" example:"16:9"`
+	Resolution      string   `json:"resolution,omitempty" example:"720p"`
+	Image           string   `json:"image,omitempty" example:"https://example.com/first-frame.png"`
+	InputReference  string   `json:"input_reference,omitempty" example:"https://example.com/first-frame.png"`
+	Images          []string `json:"images,omitempty" example:"https://example.com/ref-1.png,https://example.com/ref-2.png"`
+	ReferenceImages []string `json:"reference_images,omitempty" example:"https://example.com/ref-1.png,https://example.com/ref-2.png"`
 }
 
 // swaggerHealth godoc
@@ -203,7 +226,7 @@ func swaggerGenerateImage() {}
 // @Summary 编辑图片
 // @Tags Images
 // @Security BearerAuth
-// @Accept json
+// @Accept json,mpfd
 // @Produce json
 // @Param request body SwaggerImageEditRequest true "请求"
 // @Success 200 {object} map[string]any
@@ -232,6 +255,20 @@ func swaggerGetImage() {}
 // @Failure 400 {object} map[string]any
 // @Router /v1/videos/generations [post]
 func swaggerGenerateVideo() {}
+
+// swaggerCreateCompatibleVideo godoc
+// @Summary 创建 Sora/new-api 兼容的异步视频任务
+// @Description image/input_reference 用作首帧；images/reference_images 用作内容或风格参考图。首帧和参考图模式不能同时使用。
+// @Tags Videos
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param request body SwaggerCompatibleVideoRequest true "请求"
+// @Success 200 {object} map[string]any
+// @Failure 400 {object} map[string]any
+// @Failure 401 {object} map[string]any
+// @Router /v1/videos [post]
+func swaggerCreateCompatibleVideo() {}
 
 // swaggerEditVideo godoc
 // @Summary 创建异步视频编辑任务

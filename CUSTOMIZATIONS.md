@@ -10,18 +10,19 @@
 | --- | --- |
 | 二开分支 | `video-image` |
 | 本文覆盖的最后一个业务二开提交 | `9a91facc` (`feat: expose server tool progress in chat streams`) |
-| 上次已合入的官方基线 | `6e9eef76` (`v3.1.2`) |
-| 记录时官方 `upstream/main` | `6463c6a3` |
+| 最新上游合并提交 | `20473523` (`Merge branch 'main' into video-image`) |
+| 已合入的官方基线 | `62d2775c` (`Merge pull request #1009 from chenyme/gateway`) |
+| 记录时官方 `upstream/main` | `62d2775c` |
 
-`video-image` 与官方分支的共同祖先当前仍是 `6e9eef76`。本轮二开差异可用以下命令复核：
+`video-image` 已于 2026-08-25 合入官方 `main` 的 `62d2775c`。当前二开差异可用以下命令复核：
 
 ```powershell
 git diff --stat upstream/main...video-image
 git diff --name-status upstream/main...video-image
-git log --reverse --oneline 6e9eef76..video-image
+git log --reverse --oneline main..video-image
 ```
 
-三点语法会以共同祖先为起点，只查看二开分支一侧的最终差异，不会把官方在 `6e9eef76` 之后新增但尚未合入的代码混进二开清单。
+三点语法会以当前已合入的官方基线为起点，只查看二开分支一侧仍然存在的最终差异。
 
 ## 2. 二开功能总览
 
@@ -243,7 +244,7 @@ git merge upstream/main
 1. 对照第 3 节逐项检查最终行为，不只确认“能编译”。
 2. 重新运行 `git diff upstream/main...video-image --stat`，确认二开差异仍在预期范围。
 3. 如果上游已实现等价功能，应删除重复实现，但保留兼容契约和测试。
-4. Swagger 注解变化后重新生成 `backend/docs`，不要只手改生成文件。
+4. Swagger 注解变化后重新生成 `backend/docs`，不要只手改生成文件。`backend/internal/transport/http/swagger_annotations.go` 是唯一来源；CI 会执行 `make swagger` 并用 `git diff --exit-code` 校验三份生成文件。
 5. 更新第 1 节基线/分支提交，并在第 7 节追加新二开提交。
 6. 未经明确要求不要直接 push；先本地测试和复核差异。
 
@@ -323,6 +324,7 @@ RikkaHub 手工验证请求：
 | `fd304e0b` | 完善 OpenAI Images Generations/Edits 兼容 |
 | `90ddb0f5` | 强化图片生成/编辑 URL 参考图下载回退 |
 | `9a91facc` | Chat 流展示服务端搜索和代码工具进度 |
+| `20473523` | 合并最新 `main`（`62d2775c`）并保留二开媒体兼容 |
 
 ## 8. 维护原则
 

@@ -123,7 +123,8 @@ const docTemplate = `{
                     }
                 ],
                 "consumes": [
-                    "application/json"
+                    "application/json",
+                    "multipart/form-data"
                 ],
                 "produces": [
                     "application/json"
@@ -497,6 +498,60 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/videos": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "image/input_reference 用作首帧；images/reference_images 用作内容或风格参考图。首帧和参考图模式不能同时使用。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Videos"
+                ],
+                "summary": "创建 Sora/new-api 兼容的异步视频任务",
+                "parameters": [
+                    {
+                        "description": "请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/httpserver.SwaggerCompatibleVideoRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/v1/videos/edits": {
             "post": {
                 "security": [
@@ -703,6 +758,67 @@ const docTemplate = `{
                 }
             }
         },
+        "httpserver.SwaggerCompatibleVideoRequest": {
+            "type": "object",
+            "properties": {
+                "aspect_ratio": {
+                    "type": "string",
+                    "example": "16:9"
+                },
+                "duration": {
+                    "type": "integer",
+                    "example": 15
+                },
+                "image": {
+                    "type": "string",
+                    "example": "https://example.com/first-frame.png"
+                },
+                "images": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "https://example.com/ref-1.png",
+                        "https://example.com/ref-2.png"
+                    ]
+                },
+                "input_reference": {
+                    "type": "string",
+                    "example": "https://example.com/first-frame.png"
+                },
+                "model": {
+                    "type": "string",
+                    "example": "grok-imagine-video-1.5-console"
+                },
+                "prompt": {
+                    "type": "string",
+                    "example": "A cinematic tracking shot in natural light"
+                },
+                "reference_images": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "https://example.com/ref-1.png",
+                        "https://example.com/ref-2.png"
+                    ]
+                },
+                "resolution": {
+                    "type": "string",
+                    "example": "720p"
+                },
+                "seconds": {
+                    "type": "integer",
+                    "example": 15
+                },
+                "size": {
+                    "type": "string",
+                    "example": "1280x720"
+                }
+            }
+        },
         "httpserver.SwaggerImageEditRequest": {
             "type": "object",
             "properties": {
@@ -712,6 +828,12 @@ const docTemplate = `{
                 },
                 "image": {
                     "$ref": "#/definitions/httpserver.SwaggerImageReference"
+                },
+                "images": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/httpserver.SwaggerImageReference"
+                    }
                 },
                 "model": {
                     "type": "string",
@@ -728,6 +850,10 @@ const docTemplate = `{
                 "prompt": {
                     "type": "string",
                     "example": "Change the background to black"
+                },
+                "quality": {
+                    "type": "string",
+                    "example": "high"
                 },
                 "resolution": {
                     "type": "string",
@@ -754,6 +880,16 @@ const docTemplate = `{
                     "type": "string",
                     "example": "16:9"
                 },
+                "image": {
+                    "type": "string",
+                    "example": "https://example.com/source.png"
+                },
+                "images": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "model": {
                     "type": "string",
                     "example": "grok-imagine-image-quality"
@@ -770,6 +906,10 @@ const docTemplate = `{
                     "type": "string",
                     "example": "A cinematic city at night"
                 },
+                "quality": {
+                    "type": "string",
+                    "example": "high"
+                },
                 "resolution": {
                     "type": "string",
                     "example": "2k"
@@ -777,6 +917,10 @@ const docTemplate = `{
                 "response_format": {
                     "type": "string",
                     "example": "url"
+                },
+                "size": {
+                    "type": "string",
+                    "example": "1024x1024"
                 },
                 "stream": {
                     "type": "boolean",
@@ -787,6 +931,10 @@ const docTemplate = `{
         "httpserver.SwaggerImageReference": {
             "type": "object",
             "properties": {
+                "image_url": {
+                    "type": "string",
+                    "example": "https://example.com/source.png"
+                },
                 "url": {
                     "type": "string",
                     "example": "https://example.com/source.png"

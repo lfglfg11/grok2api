@@ -510,6 +510,8 @@ pnpm build
 make swagger
 ```
 
+`backend/internal/transport/http/swagger_annotations.go` 是唯一来源。不要直接修改 `backend/docs/docs.go`、`swagger.json` 或 `swagger.yaml`；CI 会重新生成并在提交内容不一致时失败。
+
 ## 相关文档
 
 - [English README](./README.md)

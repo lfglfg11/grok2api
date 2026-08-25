@@ -519,6 +519,8 @@ Regenerate Swagger after changing public API annotations:
 make swagger
 ```
 
+`backend/internal/transport/http/swagger_annotations.go` is the source of truth. Do not edit `backend/docs/docs.go`, `swagger.json`, or `swagger.yaml` directly: CI regenerates them and fails when the committed output differs.
+
 ## Documentation
 
 - [简体中文 README](./README.zh-CN.md)
