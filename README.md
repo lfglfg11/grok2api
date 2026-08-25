@@ -26,6 +26,9 @@
 > [!NOTE]
 > This project is for technical research and learning purposes only. Please comply with Grok's official terms of use and local laws when using it; otherwise, you will be solely responsible for all consequences!
 
+> [!IMPORTANT]
+> Fork-specific features, conflict hotspots, and the upstream sync checklist for `video-image` are tracked in [CUSTOMIZATIONS.md](./CUSTOMIZATIONS.md).
+
 ## Sponsors
 > [Want to sponsor this project?](mailto:chenyme03@gmail.com)
 

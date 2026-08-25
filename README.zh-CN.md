@@ -26,6 +26,9 @@
 > [!NOTE]
 > 本项目仅供技术研究与学习交流。使用时请务必遵循 Grok 官方的使用条款及当地法律法规，否则一切后果自负！
 
+> [!IMPORTANT]
+> `video-image` 分支的二开功能、冲突热点和上游同步检查表见 [二开维护记录](./CUSTOMIZATIONS.md)。
+
 ## 赞助商
 
 > [希望赞助这个项目？](mailto:chenyme03@gmail.com)
