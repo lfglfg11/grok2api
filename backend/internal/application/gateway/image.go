@@ -15,6 +15,7 @@ import (
 	modeldomain "github.com/chenyme/grok2api/backend/internal/domain/model"
 	infraegress "github.com/chenyme/grok2api/backend/internal/infra/egress"
 	"github.com/chenyme/grok2api/backend/internal/infra/provider"
+	"github.com/chenyme/grok2api/backend/internal/pkg/requestmeta"
 )
 
 // ImageGenerationInput 表示图片生成用例已经完成协议校验后的输入。
@@ -27,9 +28,13 @@ type ImageGenerationInput struct {
 	Size           string
 	AspectRatio    string
 	Resolution     string
+	Quality        string
 	ResponseFormat string
 	Streaming      bool
 	PartialImages  int
+	Method         string
+	Path           string
+	Headers        map[string][]string
 }
 
 // ImageEditInput 表示图片编辑用例已经完成协议校验后的输入。
@@ -43,9 +48,13 @@ type ImageEditInput struct {
 	Size           string
 	AspectRatio    string
 	Resolution     string
+	Quality        string
 	ResponseFormat string
 	Streaming      bool
 	PartialImages  int
+	Method         string
+	Path           string
+	Headers        map[string][]string
 }
 
 type imageProviderSupport func(accountdomain.Provider) bool
@@ -65,10 +74,10 @@ func (s *Service) GenerateImage(ctx context.Context, input ImageGenerationInput)
 		}
 		return adapter.GenerateImage(executionCtx, provider.ImageGenerationRequest{
 			Credential: credential, Model: upstream, Prompt: input.Prompt, Count: input.Count,
-			Size: input.Size, AspectRatio: input.AspectRatio, Resolution: input.Resolution,
+			Size: input.Size, AspectRatio: input.AspectRatio, Resolution: input.Resolution, Quality: input.Quality,
 			ResponseFormat: input.ResponseFormat, Streaming: input.Streaming, PartialImages: input.PartialImages,
 		})
-	}, input.Streaming, input.Resolution, input.Count, 0)
+	}, input.Streaming, input.Resolution, input.Quality, input.Count, 0, input.Method, input.Path, input.Headers)
 }
 
 // EditImage 选择支持图片编辑的路由和账号，并返回可统一审计的上游响应。
@@ -85,19 +94,18 @@ func (s *Service) EditImage(ctx context.Context, input ImageEditInput) (*Result,
 		request := provider.ImageEditRequest{
 			Credential: credential, Model: upstream, Prompt: input.Prompt,
 			ImageURLs: input.ImageURLs, Count: input.Count, Size: input.Size, AspectRatio: input.AspectRatio,
-			Resolution: input.Resolution, ResponseFormat: input.ResponseFormat,
+			Resolution: input.Resolution, Quality: input.Quality, ResponseFormat: input.ResponseFormat,
 			Streaming: input.Streaming, PartialImages: input.PartialImages,
 		}
 		if providerValue != accountdomain.ProviderConsole {
 			return adapter.EditImage(executionCtx, request)
 		}
 		return s.editImageWithMaterializationFallback(executionCtx, adapter, request, input.RequestID)
-	}, input.Streaming, input.Resolution, input.Count, len(input.ImageURLs))
+	}, input.Streaming, input.Resolution, input.Quality, input.Count, len(input.ImageURLs), input.Method, input.Path, input.Headers)
 }
 
-// editImageWithMaterializationFallback follows the Console video input policy:
-// send remote URLs upstream first, and only materialize them after XAI explicitly
-// reports that it could not download an input image.
+// editImageWithMaterializationFallback forwards remote URLs first and only
+// materializes them after Console explicitly reports an input download failure.
 func (s *Service) editImageWithMaterializationFallback(ctx context.Context, adapter provider.ImageEditAdapter, request provider.ImageEditRequest, affinity string) (*provider.Response, error) {
 	response, err := adapter.EditImage(ctx, request)
 	if err != nil || !isImageInputDownloadResponse(response) || s.mediaAssets == nil || !hasRemoteVideoReference(request.ImageURLs) {
@@ -109,7 +117,6 @@ func (s *Service) editImageWithMaterializationFallback(ctx context.Context, adap
 	if s.logger != nil {
 		s.logger.Warn("image_input_materialization_fallback", "provider", adapter.Provider(), "status_code", response.StatusCode)
 	}
-
 	var fetchRemote func(context.Context, string) ([]byte, error)
 	if fetcher, supported := adapter.(provider.VideoInputImageFetcher); supported {
 		fetchRemote = func(fetchCtx context.Context, rawURL string) ([]byte, error) {
@@ -122,7 +129,6 @@ func (s *Service) editImageWithMaterializationFallback(ctx context.Context, adap
 	}
 	defer cleanup()
 	request.ImageURLs = materialized
-
 	for attempt := 0; attempt < videoMaterializedAttempts; attempt++ {
 		response, err = adapter.EditImage(ctx, request)
 		if err != nil || !isImageInputDownloadResponse(response) || attempt+1 >= videoMaterializedAttempts {
@@ -147,7 +153,6 @@ func isImageInputDownloadResponse(response *provider.Response) bool {
 		strings.Contains(lower, "image_download_interrupted") ||
 		strings.Contains(lower, "failed to download the provided image")
 }
-
 func (s *Service) executeImage(
 	ctx context.Context,
 	requestID string,
@@ -159,8 +164,12 @@ func (s *Service) executeImage(
 	execute imageExecution,
 	streaming bool,
 	resolution string,
+	quality string,
 	requestedCount int,
 	inputImageCount int,
+	method string,
+	path string,
+	headers map[string][]string,
 ) (*Result, error) {
 	ctx, egressTrace := infraegress.WithTrace(ctx)
 	startedAt := time.Now()
@@ -169,15 +178,24 @@ func (s *Service) executeImage(
 	if err != nil {
 		return nil, ErrModelNotFound
 	}
-	route, err := s.selectMediaRoute(routes, key, capability, supports)
+	route, preselectedSession, err := s.selectSchedulableMediaRoute(ctx, routes, key, capability, true, supports)
 	if err != nil {
-		return nil, err
+		// Preserve the established failure-audit path when every eligible target
+		// is currently unschedulable. The request loop will reproduce the
+		// selection error for the representative route after auditBase exists.
+		route, err = s.selectMediaRoute(routes, key, capability, supports)
+		if err != nil {
+			return nil, err
+		}
+		preselectedSession = nil
 	}
 	externalModel := modeldomain.ExternalPublicID(route.Provider, route.PublicID)
 	auditBase := audit.Record{
 		EventID: eventID, RequestID: requestID, ClientKeyID: key.ID, ClientKeyName: key.Name,
+		ClientIP:     requestmeta.ClientIP(ctx),
 		ModelRouteID: route.ID, ModelPublicID: externalModel, ModelUpstreamModel: modeldomain.DisplayUpstreamModel(route.Provider, route.UpstreamModel),
 		Provider: string(route.Provider), Operation: operation, UsageSource: audit.UsageSourceNone, Streaming: streaming,
+		RequestMethod: method, RequestPath: path, RequestHeaders: headers,
 	}
 	if operation == audit.OperationImageEdit {
 		auditBase.MediaInputImages = int64(max(0, inputImageCount))
@@ -204,13 +222,20 @@ func (s *Service) executeImage(
 		}
 	}
 	pricingModel := s.providers.PricingModel(route.Provider, route.UpstreamModel)
+	pricingResolution, pricingQuality := resolution, quality
+	if route.Provider == accountdomain.ProviderWeb && operation == audit.OperationImage {
+		// Grok Web Imagine selects the product through the catalog model and
+		// only forwards aspect_ratio/n. Do not reserve or record a price tier
+		// derived from Console-only resolution/quality compatibility fields.
+		pricingResolution, pricingQuality = "", ""
+	}
 	var reservation audit.PricingResult
 	var priced bool
 	switch operation {
 	case audit.OperationImage:
-		reservation, priced = audit.EstimateOfficialImageCost(pricingModel, resolution, requestedCount)
+		reservation, priced = audit.EstimateOfficialImageCost(pricingModel, pricingResolution, pricingQuality, requestedCount)
 	case audit.OperationImageEdit:
-		reservation, priced = audit.EstimateOfficialImageEditCost(pricingModel, resolution, requestedCount, inputImageCount)
+		reservation, priced = audit.EstimateOfficialImageEditCost(pricingModel, pricingResolution, pricingQuality, requestedCount, inputImageCount)
 	}
 	reserved := false
 	if priced {
@@ -226,9 +251,10 @@ func (s *Service) executeImage(
 		}
 	}()
 	quotaMode := s.providers.QuotaMode(route.Provider, route.UpstreamModel)
+	quotaRefreshGroup := s.providers.QuotaRefreshGroup(route.Provider, route.UpstreamModel)
 	attemptPolicy := newRoutingAttemptPolicy(int(s.maxAttempts.Load()))
 	excluded := make(map[uint64]bool)
-	var selection *selectionSession
+	selection := preselectedSession
 	var lease *accountLease
 	var credential accountdomain.Credential
 	var response *provider.Response
@@ -344,9 +370,9 @@ func (s *Service) executeImage(
 				var priced bool
 				switch operation {
 				case audit.OperationImage:
-					pricing, priced = audit.EstimateOfficialImageCost(pricingModel, resolution, requestedCount)
+					pricing, priced = audit.EstimateOfficialImageCost(pricingModel, pricingResolution, pricingQuality, requestedCount)
 				case audit.OperationImageEdit:
-					pricing, priced = audit.EstimateOfficialImageEditCost(pricingModel, resolution, requestedCount, inputImageCount)
+					pricing, priced = audit.EstimateOfficialImageEditCost(pricingModel, pricingResolution, pricingQuality, requestedCount, inputImageCount)
 				}
 				if priced {
 					record.EstimatedCostInUSDTicks = pricing.CostInUSDTicks
@@ -355,22 +381,26 @@ func (s *Service) executeImage(
 				}
 			}
 			quotaKind, _ := s.providers.QuotaKind(route.Provider)
-			if successful && quotaKind == provider.QuotaRemoteWindow && effectiveQuotaMode != "" {
-				if effectiveQuotaMode != "weekly" {
+			refreshMode, decrementMode, availabilityMode := quotaFinalizationModes(effectiveQuotaMode, quotaRefreshGroup)
+			if successful && quotaKind == provider.QuotaRemoteWindow && refreshMode != "" {
+				if decrementMode != "" && decrementMode != "weekly" {
 					units := max(1, response.QuotaUnits)
 					var updated bool
 					err := budget.run("quota_decrement", finalizationQuotaBudget, func(stageCtx context.Context) error {
 						var decrementErr error
-						updated, decrementErr = s.accounts.DecrementWebQuota(stageCtx, accountID, effectiveQuotaMode, units)
+						updated, decrementErr = s.accounts.DecrementWebQuota(stageCtx, accountID, decrementMode, units)
 						return decrementErr
 					})
 					if err != nil {
-						s.logger.Warn("web_quota_decrement_failed", "account_id", accountID, "mode", effectiveQuotaMode, "units", units, "error", err)
+						s.logger.Warn("web_quota_decrement_failed", "account_id", accountID, "mode", decrementMode, "units", units, "error", err)
 					} else if updated {
-						s.selector.ConsumeQuota(route.Provider, accountID, effectiveQuotaMode, units)
+						s.selector.ConsumeQuota(route.Provider, accountID, decrementMode, units)
 					}
 				}
-				s.accounts.QueueQuotaRefresh(accountID, effectiveQuotaMode)
+				s.accounts.QueueQuotaRefresh(accountID, refreshMode)
+				if availabilityMode != "" && availabilityMode != refreshMode {
+					s.accounts.QueueQuotaRefresh(accountID, availabilityMode)
+				}
 			}
 			if err := budget.run("audit", finalizationAuditBudget, func(stageCtx context.Context) error {
 				return s.audits.Create(stageCtx, record)
@@ -381,4 +411,24 @@ func (s *Service) executeImage(
 	}
 	finalizationOwnsReservation = true
 	return &Result{StatusCode: response.StatusCode, Status: response.Status, Header: response.Header, Body: &finalizingBody{ReadCloser: response.Body, finalize: func() { finalize(Usage{}, "", "stream_closed") }}, Finalize: finalize}, nil
+}
+
+// quotaFinalizationModes separates the immediate local consumption fence from
+// the authoritative provider refresh. A refresh group may update several
+// upstream windows atomically, while the local fence must charge the exact
+// window selected for this account so concurrent media requests cannot
+// over-allocate during the short refresh delay.
+func quotaFinalizationModes(effectiveMode, refreshGroup string) (refreshMode, decrementMode, availabilityMode string) {
+	// Availability-only Imagine products on paid Web tiers are governed by the
+	// shared weekly pool. Refresh its numeric counter and also re-read the
+	// product group so available=false/nextAvailableAt can install an exact
+	// product fence that overrides weekly routing.
+	if effectiveMode == "weekly" {
+		return effectiveMode, effectiveMode, refreshGroup
+	}
+	refreshMode = effectiveMode
+	if refreshGroup != "" {
+		refreshMode = refreshGroup
+	}
+	return refreshMode, effectiveMode, ""
 }

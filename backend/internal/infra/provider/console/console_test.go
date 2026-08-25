@@ -21,6 +21,9 @@ import (
 	"testing"
 	"time"
 
+	fhttp "github.com/bogdanfinn/fhttp"
+	fhttptest "github.com/bogdanfinn/fhttp/httptest"
+	"github.com/bogdanfinn/websocket"
 	"github.com/chenyme/grok2api/backend/internal/domain/account"
 	egressdomain "github.com/chenyme/grok2api/backend/internal/domain/egress"
 	mediadomain "github.com/chenyme/grok2api/backend/internal/domain/media"
@@ -47,23 +50,33 @@ func TestCatalogContainsAllConsoleModelsAndAliases(t *testing.T) {
 		{publicID: "Console/grok-4.20-multi-agent-0309", capability: modeldomain.CapabilityResponses}:    "grok-4.20-multi-agent-0309",
 		{publicID: "Console/grok-4.5", capability: modeldomain.CapabilityResponses}:                      "grok-4.5",
 		{publicID: "Console/grok-build-0.1", capability: modeldomain.CapabilityResponses}:                "grok-build-0.1",
-		{publicID: "Console/grok-imagine-image-quality", capability: modeldomain.CapabilityImage}:        "grok-imagine-image-quality",
-		{publicID: "Console/grok-imagine-image-quality", capability: modeldomain.CapabilityImageEdit}:    "grok-imagine-image-quality",
 		{publicID: "Console/grok-imagine-image", capability: modeldomain.CapabilityImage}:                "grok-imagine-image",
 		{publicID: "Console/grok-imagine-image", capability: modeldomain.CapabilityImageEdit}:            "grok-imagine-image",
+		{publicID: "Console/grok-imagine-image-quality", capability: modeldomain.CapabilityImage}:        "grok-imagine-image-quality",
+		{publicID: "Console/grok-imagine-image-quality", capability: modeldomain.CapabilityImageEdit}:    "grok-imagine-image-quality",
+		{publicID: "Console/grok-imagine-image-2.0", capability: modeldomain.CapabilityImage}:            "grok-imagine-image-2.0",
+		{publicID: "Console/grok-imagine-image-2.0", capability: modeldomain.CapabilityImageEdit}:        "grok-imagine-image-2.0",
 		{publicID: "Console/grok-imagine-image-quality-2k", capability: modeldomain.CapabilityImage}:     "grok-imagine-image-quality",
 		{publicID: "Console/grok-imagine-image-quality-2k", capability: modeldomain.CapabilityImageEdit}: "grok-imagine-image-quality",
 		{publicID: "Console/grok-imagine-image-2k", capability: modeldomain.CapabilityImage}:             "grok-imagine-image",
 		{publicID: "Console/grok-imagine-image-2k", capability: modeldomain.CapabilityImageEdit}:         "grok-imagine-image",
-		{publicID: "Console/gpt-image-1", capability: modeldomain.CapabilityImage}:                        "grok-imagine-image-quality",
-		{publicID: "Console/gpt-image-1", capability: modeldomain.CapabilityImageEdit}:                    "grok-imagine-image-quality",
-		{publicID: "Console/gpt-image-1.5", capability: modeldomain.CapabilityImage}:                      "grok-imagine-image-quality",
-		{publicID: "Console/gpt-image-1.5", capability: modeldomain.CapabilityImageEdit}:                  "grok-imagine-image-quality",
-		{publicID: "Console/dall-e-2", capability: modeldomain.CapabilityImage}:                           "grok-imagine-image",
-		{publicID: "Console/dall-e-2", capability: modeldomain.CapabilityImageEdit}:                       "grok-imagine-image",
-		{publicID: "Console/dall-e-3", capability: modeldomain.CapabilityImage}:                           "grok-imagine-image",
-		{publicID: "Console/dall-e-3", capability: modeldomain.CapabilityImageEdit}:                       "grok-imagine-image",
-		{publicID: "Console/grok-imagine-video-1.5-console", capability: modeldomain.CapabilityVideo}:    "grok-imagine-video",
+		{publicID: "Console/gpt-image-1", capability: modeldomain.CapabilityImage}:                       "grok-imagine-image-quality",
+		{publicID: "Console/gpt-image-1", capability: modeldomain.CapabilityImageEdit}:                   "grok-imagine-image-quality",
+		{publicID: "Console/gpt-image-1.5", capability: modeldomain.CapabilityImage}:                     "grok-imagine-image-quality",
+		{publicID: "Console/gpt-image-1.5", capability: modeldomain.CapabilityImageEdit}:                 "grok-imagine-image-quality",
+		{publicID: "Console/dall-e-2", capability: modeldomain.CapabilityImage}:                          "grok-imagine-image",
+		{publicID: "Console/dall-e-2", capability: modeldomain.CapabilityImageEdit}:                      "grok-imagine-image",
+		{publicID: "Console/dall-e-3", capability: modeldomain.CapabilityImage}:                          "grok-imagine-image",
+		{publicID: "Console/dall-e-3", capability: modeldomain.CapabilityImageEdit}:                      "grok-imagine-image",
+		{publicID: "Console/grok-imagine-video", capability: modeldomain.CapabilityVideo}:                "grok-imagine-video",
+		{publicID: "Console/grok-imagine-video-1.5", capability: modeldomain.CapabilityVideo}:            "grok-imagine-video-1.5",
+		{publicID: "Console/grok-voice-latest", capability: modeldomain.CapabilityRealtime}:              "grok-voice-latest",
+		{publicID: "Console/grok-voice-latest", capability: modeldomain.CapabilityTTS}:                   "grok-voice-latest",
+		{publicID: "Console/grok-voice-think-fast-2.0", capability: modeldomain.CapabilityRealtime}:      "grok-voice-think-fast-2.0",
+		{publicID: "Console/grok-voice-think-fast-2.0", capability: modeldomain.CapabilityTTS}:           "grok-voice-think-fast-2.0",
+		{publicID: "Console/grok-voice-think-fast-1.0", capability: modeldomain.CapabilityRealtime}:      "grok-voice-think-fast-1.0",
+		{publicID: "Console/grok-voice-think-fast-1.0", capability: modeldomain.CapabilityTTS}:           "grok-voice-think-fast-1.0",
+		{publicID: "Console/grok-stt", capability: modeldomain.CapabilitySTT}:                            "grok-stt",
 	}
 	routes := Routes()
 	if len(routes) != len(expected) {
@@ -78,14 +91,15 @@ func TestCatalogContainsAllConsoleModelsAndAliases(t *testing.T) {
 		}
 	}
 	aliases := Aliases()
-	if len(aliases) != 13 {
-		t.Fatalf("aliases = %d, want 13", len(aliases))
+	if len(aliases) != 15 {
+		t.Fatalf("aliases = %d, want 15", len(aliases))
 	}
 	registry := provider.NewRegistry(NewAdapter(Config{}, nil, nil, nil))
 	if registry.SupportsStoredResponses(account.ProviderConsole) {
 		t.Fatal("console must not advertise stored Responses support")
 	}
 	for _, name := range []string{
+		"grok-imagine-image-quality-2.0",
 		"grok-4.3-console", "grok-4.20-0309-reasoning-console",
 		"grok-4.20-0309-non-reasoning-console", "grok-4.20-multi-agent-console", "grok-build-console",
 		"grok-4.3-low", "grok-4.3-medium", "grok-4.3-high",
@@ -102,12 +116,149 @@ func TestCatalogContainsAllConsoleModelsAndAliases(t *testing.T) {
 	}
 	adapter := NewAdapter(Config{}, nil, nil, nil)
 	for model, want := range map[string]string{
-		"grok-4.5": QuotaMode, "grok-imagine-image-quality": QuotaModeImage,
-		"grok-imagine-image": QuotaModeImage, "grok-imagine-video": QuotaModeVideo,
+		"grok-4.5": QuotaMode, "grok-imagine-image-quality": QuotaModeImage, "grok-imagine-image-2.0": QuotaModeImage,
+		"grok-imagine-image": QuotaModeImage, "grok-imagine-video": QuotaModeVideo, "grok-imagine-video-1.5": QuotaModeVideo,
+		"grok-voice-latest": QuotaMode, "grok-voice-think-fast-2.0": QuotaMode, "grok-voice-think-fast-1.0": QuotaMode, "grok-stt": QuotaMode,
 	} {
 		if got := adapter.QuotaMode(model); got != want {
 			t.Fatalf("QuotaMode(%q) = %q, want %q", model, got, want)
 		}
+	}
+}
+
+func TestConsoleVoiceErrorIsSanitizedAndPreservesRetryMetadata(t *testing.T) {
+	response := &http.Response{
+		StatusCode: http.StatusTooManyRequests,
+		Header:     http.Header{"Retry-After": {"17"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"Authorization: Bearer secret-token"}}`)),
+	}
+	err := consoleVoiceResponseError(response)
+	if err == nil {
+		t.Fatal("expected voice upstream error")
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "authorization") || strings.Contains(err.Error(), "secret-token") {
+		t.Fatalf("voice error exposed sensitive upstream body: %q", err)
+	}
+	if status, ok := provider.ErrorHTTPStatus(err); !ok || status != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, ok = %v", status, ok)
+	}
+	if retryAfter := provider.ErrorRetryAfter(err); retryAfter != 17*time.Second {
+		t.Fatalf("retry after = %s", retryAfter)
+	}
+	if message, ok := provider.ErrorPublicMessage(err); !ok || strings.Contains(message, "secret-token") {
+		t.Fatalf("public message = %q, ok = %v", message, ok)
+	}
+}
+
+func TestConsoleVoiceErrorSanitizesCredentialAliases(t *testing.T) {
+	for _, body := range []string{
+		`{"error":{"message":"access_token=secret"}}`,
+		`{"error":{"message":"refresh-token=secret"}}`,
+		`{"error":{"message":"api_key=secret"}}`,
+		`{"error":{"message":"Bearer secret"}}`,
+		`{"error":{"message":"cf_clearance=secret"}}`,
+	} {
+		err := newConsoleMediaUpstreamError(http.StatusBadGateway, []byte(body), 0)
+		message, ok := provider.ErrorPublicMessage(err)
+		if !ok || message == "" || strings.Contains(strings.ToLower(message), "secret") {
+			t.Fatalf("body %q produced public message %q, ok = %v", body, message, ok)
+		}
+	}
+}
+
+func TestConsoleVoiceDPoPRejectionIsRequestScoped(t *testing.T) {
+	err := newConsoleMediaUpstreamError(http.StatusForbidden, []byte(`{"error":{"code":"unauthorized:dpop-required"}}`), 0)
+	if !provider.IsRequestScopedError(err) {
+		t.Fatalf("DPoP rejection was not request-scoped: %v", err)
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "authorization") {
+		t.Fatalf("DPoP error exposed authorization details: %q", err)
+	}
+}
+
+func TestVoiceWebSocketProofEndpointUsesHTTPUpgradeURI(t *testing.T) {
+	got, err := voiceWebSocketProofEndpoint("wss://console.x.ai/v1/realtime?model=grok-voice-latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "https://console.x.ai/v1/realtime?model=grok-voice-latest" {
+		t.Fatalf("proof endpoint = %q", got)
+	}
+}
+
+func TestVoiceWebSocketRefreshesDPoPOnceAfterUnauthorized(t *testing.T) {
+	var tokenRequests atomic.Int32
+	var websocketRequests atomic.Int32
+	server := fhttptest.NewServer(fhttp.HandlerFunc(func(writer fhttp.ResponseWriter, request *fhttp.Request) {
+		switch request.URL.Path {
+		case "/v1/dpop/token":
+			tokenRequests.Add(1)
+			var payload struct {
+				JWK dpopJWK `json:"jwk"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Errorf("decode DPoP token request: %v", err)
+				writer.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			thumbprint, err := dpopJWKThumbprint(payload.JWK)
+			if err != nil {
+				t.Errorf("DPoP thumbprint: %v", err)
+				writer.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			header, _ := json.Marshal(map[string]any{"alg": "HS256", "typ": "JWT"})
+			claims, _ := json.Marshal(map[string]any{
+				"sub": "test-user", "iat": time.Now().UTC().Unix(), "exp": time.Now().UTC().Add(5 * time.Minute).Unix(),
+				"cnf": map[string]any{"jkt": thumbprint}, "token_use": "dpop-bound",
+			})
+			accessToken := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(claims) + ".dGVzdA"
+			writer.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(writer).Encode(map[string]any{"access_token": accessToken, "token_type": "DPoP", "expires_in": 300})
+		case "/v1/realtime":
+			current := websocketRequests.Add(1)
+			proof, _, err := jwt.NewParser().ParseUnverified(request.Header.Get("DPoP"), jwt.MapClaims{})
+			if err != nil {
+				t.Errorf("parse DPoP proof: %v", err)
+				writer.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			claims := proof.Claims.(jwt.MapClaims)
+			wantHTU := "http://" + request.Host + request.URL.EscapedPath()
+			if claims["htu"] != wantHTU || claims["htm"] != http.MethodGet {
+				t.Errorf("websocket DPoP binding = %#v, want htu=%q", claims, wantHTU)
+			}
+			if current == 1 {
+				writer.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			connection, err := (&websocket.Upgrader{CheckOrigin: func(*fhttp.Request) bool { return true }}).Upgrade(writer, request, nil)
+			if err != nil {
+				t.Errorf("upgrade voice websocket: %v", err)
+				return
+			}
+			_ = connection.Close()
+		default:
+			fhttp.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	adapter, credential := newConsoleTestAdapter(t, server.URL)
+	connection, cleanup, err := adapter.DialVoiceWebSocket(context.Background(), provider.VoiceWebSocketRequest{
+		Credential: credential, Path: "/realtime", Model: "grok-voice-latest",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if connection != nil {
+		_ = connection.Close()
+	}
+	if cleanup != nil {
+		cleanup()
+	}
+	if tokenRequests.Load() != 2 || websocketRequests.Load() != 2 {
+		t.Fatalf("requests token=%d websocket=%d", tokenRequests.Load(), websocketRequests.Load())
 	}
 }
 
@@ -197,40 +348,183 @@ func TestNormalizeRequestAppliesConsoleContract(t *testing.T) {
 	}
 }
 
-func TestNormalizeRequestInjectsDefaultToolsOnlyForMultiAgentModels(t *testing.T) {
-	for _, spec := range catalog {
-		t.Run(spec.PublicID, func(t *testing.T) {
-			body, err := normalizeRequest([]byte(`{"model":"public","input":"hello","tool_choice":"required"}`), spec)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var payload map[string]any
-			if err := json.Unmarshal(body, &payload); err != nil {
-				t.Fatal(err)
-			}
-			if isMultiAgentModel(spec.UpstreamModel) {
-				if payload["tools"] == nil || payload["tool_choice"] != "required" {
-					t.Fatalf("Console default tools missing: %#v", payload)
-				}
-				return
-			}
-			if payload["tools"] != nil || payload["tool_choice"] != nil {
-				t.Fatalf("Console must not inject tools: %#v", payload)
-			}
-		})
+func TestNormalizeRequestForwardsXSearchTimeRangeAndImageSearch(t *testing.T) {
+	spec, ok := Resolve("grok-4.3")
+	if !ok {
+		t.Fatal("grok-4.3 missing")
 	}
+
+	t.Run("forwards enable_image_search on web_search", func(t *testing.T) {
+		body, err := normalizeRequest([]byte(`{
+			"model":"grok-4.3",
+			"tools":[{"type":"web_search","enable_image_search":true,"custom":true}]
+		}`), spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatal(err)
+		}
+		tools, _ := payload["tools"].([]any)
+		if len(tools) != 1 {
+			t.Fatalf("tools = %#v", tools)
+		}
+		webSearch, _ := tools[0].(map[string]any)
+		if webSearch["type"] != "web_search" || webSearch["enable_image_understanding"] != true {
+			t.Fatalf("web_search defaults = %#v", webSearch)
+		}
+		if webSearch["enable_image_search"] != true {
+			t.Fatalf("enable_image_search not forwarded: %#v", webSearch)
+		}
+		if webSearch["custom"] != nil {
+			t.Fatalf("unknown field custom should be stripped: %#v", webSearch)
+		}
+	})
+
+	t.Run("omits enable_image_search when client does not set it", func(t *testing.T) {
+		body, err := normalizeRequest([]byte(`{
+			"model":"grok-4.3",
+			"tools":[{"type":"web_search"}]
+		}`), spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatal(err)
+		}
+		webSearch, _ := payload["tools"].([]any)[0].(map[string]any)
+		if _, exists := webSearch["enable_image_search"]; exists {
+			t.Fatalf("enable_image_search should be absent by default: %#v", webSearch)
+		}
+	})
+
+	t.Run("forwards valid x_search from_date and to_date", func(t *testing.T) {
+		body, err := normalizeRequest([]byte(`{
+			"model":"grok-4.3",
+			"tools":[{"type":"x_search","from_date":"2026-07-01","to_date":"2026-07-23","noise":1}]
+		}`), spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatal(err)
+		}
+		xSearch, _ := payload["tools"].([]any)[0].(map[string]any)
+		if xSearch["type"] != "x_search" || xSearch["enable_image_understanding"] != true {
+			t.Fatalf("x_search defaults = %#v", xSearch)
+		}
+		if xSearch["from_date"] != "2026-07-01" || xSearch["to_date"] != "2026-07-23" {
+			t.Fatalf("date bounds not forwarded: %#v", xSearch)
+		}
+		if xSearch["noise"] != nil {
+			t.Fatalf("unknown field noise should be stripped: %#v", xSearch)
+		}
+	})
+
+	t.Run("drops invalid date formats", func(t *testing.T) {
+		body, err := normalizeRequest([]byte(`{
+			"model":"grok-4.3",
+			"tools":[{"type":"x_search","from_date":"2026-7-01","to_date":"2026-02-30"}]
+		}`), spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatal(err)
+		}
+		xSearch, _ := payload["tools"].([]any)[0].(map[string]any)
+		if xSearch["from_date"] != nil || xSearch["to_date"] != nil {
+			t.Fatalf("invalid dates should be dropped: %#v", xSearch)
+		}
+		if xSearch["type"] != "x_search" || xSearch["enable_image_understanding"] != true {
+			t.Fatalf("x_search defaults should remain: %#v", xSearch)
+		}
+	})
+
+	t.Run("drops inverted date range", func(t *testing.T) {
+		body, err := normalizeRequest([]byte(`{
+			"model":"grok-4.3",
+			"tools":[{"type":"x_search","from_date":"2026-07-24","to_date":"2026-07-23"}]
+		}`), spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatal(err)
+		}
+		xSearch, _ := payload["tools"].([]any)[0].(map[string]any)
+		if xSearch["from_date"] != nil || xSearch["to_date"] != nil {
+			t.Fatalf("inverted range should drop both bounds: %#v", xSearch)
+		}
+	})
+
+	t.Run("keeps only from_date when to_date absent", func(t *testing.T) {
+		body, err := normalizeRequest([]byte(`{
+			"model":"grok-4.3",
+			"tools":[{"type":"x_search","from_date":"2026-08-01"}]
+		}`), spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatal(err)
+		}
+		xSearch, _ := payload["tools"].([]any)[0].(map[string]any)
+		if xSearch["from_date"] != "2026-08-01" || xSearch["to_date"] != nil {
+			t.Fatalf("single bound = %#v", xSearch)
+		}
+	})
 }
 
-func TestNormalizeRequestEnablesFutureMultiAgentModelTools(t *testing.T) {
-	models := []string{
-		"grok-4.5-multi-agent",
-		"grok-4.5-multi-agent-0401",
-		"GROK-4.6-MULTI-AGENT",
+func TestNormalizeRequestAvoidsClientViewImageToolCollision(t *testing.T) {
+	spec, ok := Resolve("grok-4.5")
+	if !ok {
+		t.Fatal("grok-4.5 missing")
 	}
-	for _, upstreamModel := range models {
-		t.Run(upstreamModel, func(t *testing.T) {
-			spec := ModelSpec{UpstreamModel: upstreamModel}
-			body, err := normalizeRequest([]byte(`{"model":"future","input":"hello"}`), spec)
+	tests := []struct {
+		name      string
+		operation string
+		body      string
+	}{
+		{
+			name:      "responses",
+			operation: conversation.OperationResponses,
+			body: `{"model":"grok-4.5","input":"Reply only OK. Do not call tools.","tools":[
+				{"type":"function","name":"view_image","description":"View a local image","strict":false,"parameters":{"type":"object"}},
+				{"type":"web_search","enable_image_understanding":true}],"tool_choice":"auto"}`,
+		},
+		{
+			name:      "chat completions",
+			operation: conversation.OperationChat,
+			body: `{"model":"grok-4.5","messages":[{"role":"user","content":"Reply only OK."}],"tools":[
+				{"type":"function","function":{"name":"view_image","description":"View a local image","strict":false,"parameters":{"type":"object"}}},
+				{"type":"web_search"}],"tool_choice":"auto"}`,
+		},
+		{
+			name:      "anthropic messages",
+			operation: conversation.OperationMessages,
+			body: `{"model":"grok-4.5","max_tokens":64,"messages":[{"role":"user","content":"Reply only OK."}],"tools":[
+				{"name":"view_image","description":"View a local image","input_schema":{"type":"object"}},
+				{"type":"web_search_20250305","name":"web_search"}],"tool_choice":{"type":"auto"}}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body := []byte(test.body)
+			var err error
+			if test.operation != conversation.OperationResponses {
+				body, err = conversation.ConvertRequest(body, spec.UpstreamModel, test.operation)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			body, err = normalizeRequest(body, spec)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -239,76 +533,57 @@ func TestNormalizeRequestEnablesFutureMultiAgentModelTools(t *testing.T) {
 				t.Fatal(err)
 			}
 			tools, _ := payload["tools"].([]any)
-			if len(tools) != 3 || toolIdentity(tools[0]) != "code_interpreter" || toolIdentity(tools[1]) != "web_search" || toolIdentity(tools[2]) != "x_search" || payload["tool_choice"] != "auto" {
-				t.Fatalf("future multi-agent tools = %#v choice=%#v", tools, payload["tool_choice"])
+			if len(tools) != 2 {
+				t.Fatalf("tools = %#v", tools)
+			}
+			function, _ := tools[0].(map[string]any)
+			if toolIdentity(function) != "function:view_image" || function["parameters"] == nil {
+				t.Fatalf("client view_image must be retained: %#v", function)
+			}
+			webSearch, _ := tools[1].(map[string]any)
+			if webSearch["type"] != "web_search" || webSearch["enable_image_understanding"] != false {
+				t.Fatalf("server view_image must be disabled: %#v", webSearch)
+			}
+			if payload["tool_choice"] != "auto" {
+				t.Fatalf("tool_choice = %#v", payload["tool_choice"])
 			}
 		})
 	}
-	for _, upstreamModel := range []string{"grok-4.5", "grok-4.5-multi-agentic"} {
-		if isMultiAgentModel(upstreamModel) {
-			t.Fatalf("non-multi-agent model matched: %q", upstreamModel)
+}
+
+func TestNormalizeRequestInjectsToolsOnlyForMultiAgentModels(t *testing.T) {
+	for _, spec := range catalog {
+		body, err := normalizeRequest([]byte(`{"model":"public","input":"hello"}`), spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatal(err)
+		}
+		tools, _ := payload["tools"].([]any)
+		if isMultiAgentModel(spec.UpstreamModel) {
+			if len(tools) != 3 || payload["tool_choice"] != "auto" {
+				t.Fatalf("multi-agent defaults = %#v", payload)
+			}
+			for index, want := range []string{"code_interpreter", "web_search", "x_search"} {
+				tool, _ := tools[index].(map[string]any)
+				if tool["type"] != want {
+					t.Fatalf("tool %d = %#v", index, tool)
+				}
+				if want != "code_interpreter" && tool["enable_image_understanding"] != true {
+					t.Fatalf("tool image understanding = %#v", tool)
+				}
+			}
+		} else if payload["tools"] != nil || payload["tool_choice"] != nil {
+			t.Fatalf("ordinary Console model must not receive defaults: %#v", payload)
 		}
 	}
 }
 
-func TestNormalizeRequestEnablesMultiAgentDefaultTools(t *testing.T) {
-	spec, ok := Resolve("grok-4.20-multi-agent-0309")
-	if !ok {
-		t.Fatal("grok-4.20-multi-agent-0309 missing")
-	}
-	body, err := normalizeRequest([]byte(`{
-		"model":"grok-4.20-multi-agent-0309",
-		"input":[{"role":"system","content":"hello"},{"role":"user","content":[{"type":"input_text","text":"news"}]}],
-		"stream":true
-	}`), spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if payload["max_output_tokens"] != float64(1_000_000) || payload["reasoning"] != nil || payload["store"] != false {
-		t.Fatalf("multi-agent defaults = %#v", payload)
-	}
-	include, _ := payload["include"].([]any)
-	if len(include) != 1 || include[0] != "reasoning.encrypted_content" || payload["tool_choice"] != "auto" {
-		t.Fatalf("multi-agent compatibility = %#v", payload)
-	}
-	tools, _ := payload["tools"].([]any)
-	if len(tools) != 3 || toolIdentity(tools[0]) != "code_interpreter" || toolIdentity(tools[1]) != "web_search" || toolIdentity(tools[2]) != "x_search" {
-		t.Fatalf("multi-agent default tools = %#v", tools)
-	}
-	for _, index := range []int{1, 2} {
-		tool := tools[index].(map[string]any)
-		if tool["enable_image_understanding"] != true {
-			t.Fatalf("multi-agent search tool = %#v", tool)
-		}
-	}
-	explicit, err := normalizeRequest([]byte(`{"model":"grok-4.20-multi-agent-0309","input":"hello","reasoning":{"effort":"xhigh"}}`), spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	payload = nil
-	if json.Unmarshal(explicit, &payload) != nil || payload["reasoning"].(map[string]any)["effort"] != "xhigh" {
-		t.Fatalf("explicit multi-agent effort = %#v", payload)
-	}
-}
-
-func TestNormalizeRequestCompletesMultiAgentToolsWithoutOverridingExplicitSettings(t *testing.T) {
-	spec, ok := Resolve("grok-4.20-multi-agent-0309")
-	if !ok {
-		t.Fatal("grok-4.20-multi-agent-0309 missing")
-	}
-	body, err := normalizeRequest([]byte(`{
-		"model":"grok-4.20-multi-agent-0309",
-		"input":"hello",
-		"tools":[
-			{"type":"web_search","enable_image_understanding":false},
-			{"type":"function","name":"lookup","parameters":{"type":"object"}}
-		],
-		"tool_choice":"none"
-	}`), spec)
+func TestNormalizeRequestMultiAgentMatchingDeduplicationAndOptOut(t *testing.T) {
+	future := ModelSpec{PublicID: "grok-4.5-multi-agent", UpstreamModel: "grok-4.5-multi-agent", SupportsReasoning: true}
+	body, err := normalizeRequest([]byte(`{"input":"news","tools":[{"type":"web_search_preview","enable_image_search":true}],"tool_choice":"none"}`), future)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,14 +592,66 @@ func TestNormalizeRequestCompletesMultiAgentToolsWithoutOverridingExplicitSettin
 		t.Fatal(err)
 	}
 	tools, _ := payload["tools"].([]any)
-	if len(tools) != 4 || toolIdentity(tools[0]) != "web_search" || toolIdentity(tools[1]) != "function:lookup" || toolIdentity(tools[2]) != "code_interpreter" || toolIdentity(tools[3]) != "x_search" {
-		t.Fatalf("completed tools = %#v", tools)
+	if len(tools) != 3 || payload["tool_choice"] != "none" {
+		t.Fatalf("future multi-agent defaults = %#v", payload)
 	}
-	if tools[0].(map[string]any)["enable_image_understanding"] != false || tools[3].(map[string]any)["enable_image_understanding"] != true {
-		t.Fatalf("explicit/default search settings = %#v", tools)
+	seen := map[string]int{}
+	for _, raw := range tools {
+		tool, _ := raw.(map[string]any)
+		seen[tool["type"].(string)]++
 	}
-	if payload["tool_choice"] != "none" {
-		t.Fatalf("explicit tool opt-out changed: %#v", payload["tool_choice"])
+	if seen["web_search"] != 1 || seen["code_interpreter"] != 1 || seen["x_search"] != 1 {
+		t.Fatalf("deduped tools = %#v", tools)
+	}
+	if isMultiAgentModel("grok-4.5-multi-agentic") {
+		t.Fatal("multi-agentic must not match the independent segment")
+	}
+}
+
+func TestNormalizeRequestPreservesMultiAgentReasoningDefaults(t *testing.T) {
+	spec, ok := Resolve("grok-4.20-multi-agent-0309")
+	if !ok {
+		t.Fatal("multi-agent model missing")
+	}
+	metadata := &provider.NormalizedRequestMetadata{}
+	body, err := normalizeRequestWithMetadata([]byte(`{"input":"hello","reasoning":{"effort":"xhigh"}}`), spec, metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if json.Unmarshal(body, &payload) != nil || payload["reasoning"].(map[string]any)["effort"] != "xhigh" {
+		t.Fatalf("explicit effort = %#v", payload)
+	}
+	if metadata.ReasoningEffort != "xhigh" {
+		t.Fatalf("metadata effort = %q", metadata.ReasoningEffort)
+	}
+}
+
+func TestNormalizeRequestReasoningMetadataTracksOnlyExplicitCanonicalValues(t *testing.T) {
+	spec, ok := Resolve("grok-4.3")
+	if !ok {
+		t.Fatal("grok-4.3 missing")
+	}
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "absent default stays unaudited", body: `{"input":"hello"}`},
+		{name: "auto resolves to provider default", body: `{"input":"hello","reasoning":{"effort":"auto"}}`, want: "medium"},
+		{name: "max resolves to xhigh", body: `{"input":"hello","reasoning":{"effort":"max"}}`, want: "xhigh"},
+		{name: "arbitrary value is not persisted", body: `{"input":"hello","reasoning":{"effort":"customer@example.com"}}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			metadata := &provider.NormalizedRequestMetadata{}
+			if _, err := normalizeRequestWithMetadata([]byte(test.body), spec, metadata); err != nil {
+				t.Fatal(err)
+			}
+			if metadata.ReasoningEffort != test.want {
+				t.Fatalf("metadata effort = %q, want %q", metadata.ReasoningEffort, test.want)
+			}
+		})
 	}
 }
 
@@ -405,11 +732,12 @@ func TestNormalizeRequestStripsUnsupportedGrok420ReasoningEffort(t *testing.T) {
 	if !spec.SupportsReasoning || spec.SupportsReasoningEffort {
 		t.Fatalf("fixed reasoning capability = %#v", spec)
 	}
-	body, err := normalizeRequest([]byte(`{
+	metadata := &provider.NormalizedRequestMetadata{}
+	body, err := normalizeRequestWithMetadata([]byte(`{
 		"model":"grok-4.20-0309-reasoning",
 		"input":"hello",
 		"reasoning":{"effort":"low","summary":"auto"}
-	}`), spec)
+	}`), spec, metadata)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -420,6 +748,9 @@ func TestNormalizeRequestStripsUnsupportedGrok420ReasoningEffort(t *testing.T) {
 	reasoning, _ := payload["reasoning"].(map[string]any)
 	if reasoning["effort"] != nil || reasoning["summary"] != "auto" {
 		t.Fatalf("reasoning = %#v", reasoning)
+	}
+	if metadata.ReasoningEffort != "fixed" {
+		t.Fatalf("metadata effort = %q, want fixed", metadata.ReasoningEffort)
 	}
 
 	effortOnly, err := normalizeRequest([]byte(`{
@@ -489,40 +820,6 @@ func TestGrok420FixedReasoningStripsEffortAfterProtocolConversion(t *testing.T) 
 			reasoning, _ := payload["reasoning"].(map[string]any)
 			if reasoning["effort"] != nil {
 				t.Fatalf("unsupported effort reached Console upstream: %s", normalized)
-			}
-		})
-	}
-}
-
-func TestMultiAgentDefaultToolsAfterProtocolConversion(t *testing.T) {
-	spec, ok := Resolve("grok-4.20-multi-agent-0309")
-	if !ok {
-		t.Fatal("grok-4.20-multi-agent-0309 missing")
-	}
-	tests := []struct {
-		operation string
-		body      string
-	}{
-		{operation: conversation.OperationChat, body: `{"model":"public","messages":[{"role":"user","content":"latest news"}]}`},
-		{operation: conversation.OperationMessages, body: `{"model":"public","max_tokens":1024,"messages":[{"role":"user","content":"latest news"}]}`},
-	}
-	for _, test := range tests {
-		t.Run(test.operation, func(t *testing.T) {
-			converted, err := conversation.ConvertRequest([]byte(test.body), spec.UpstreamModel, test.operation)
-			if err != nil {
-				t.Fatal(err)
-			}
-			normalized, err := normalizeRequest(converted, spec)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var payload map[string]any
-			if err := json.Unmarshal(normalized, &payload); err != nil {
-				t.Fatal(err)
-			}
-			tools, _ := payload["tools"].([]any)
-			if len(tools) != 3 || toolIdentity(tools[0]) != "code_interpreter" || toolIdentity(tools[1]) != "web_search" || toolIdentity(tools[2]) != "x_search" || payload["tool_choice"] != "auto" {
-				t.Fatalf("%s multi-agent tools = %#v choice=%#v", test.operation, tools, payload["tool_choice"])
 			}
 		})
 	}
@@ -659,15 +956,6 @@ func TestAdapterAttachesConsoleRateLimitMetadata(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if serveTestDPoPToken(t, writer, request) {
 			return
-		}
-		var payload map[string]any
-		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
-			t.Error(err)
-		} else {
-			tools, _ := payload["tools"].([]any)
-			if len(tools) != 3 || toolIdentity(tools[0]) != "code_interpreter" || toolIdentity(tools[1]) != "web_search" || toolIdentity(tools[2]) != "x_search" || payload["tool_choice"] != "auto" {
-				t.Errorf("upstream multi-agent request tools = %#v choice=%#v", tools, payload["tool_choice"])
-			}
 		}
 		writer.Header().Set("Content-Type", "text/plain")
 		writer.WriteHeader(http.StatusTooManyRequests)
@@ -829,7 +1117,7 @@ func TestAdapterForwardsConsoleHeadersAndNormalizedBody(t *testing.T) {
 	}
 }
 
-func TestAdapterScopesStreamIdleTimeoutToConsoleTextStreams(t *testing.T) {
+func TestAdapterAppliesIdleTimeoutToConsoleTextResponses(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if serveTestDPoPToken(t, writer, request) {
 			return
@@ -861,8 +1149,8 @@ func TestAdapterScopesStreamIdleTimeoutToConsoleTextStreams(t *testing.T) {
 				t.Fatalf("response body = %T, want *releaseBody", response.Body)
 			}
 			_, wrapped := released.ReadCloser.(*providerstreamidle.ReadCloser)
-			if wrapped != streaming {
-				t.Fatalf("stream-idle wrapper present = %t, streaming = %t", wrapped, streaming)
+			if !wrapped {
+				t.Fatalf("text response idle wrapper missing for streaming=%t", streaming)
 			}
 		})
 	}
@@ -893,6 +1181,55 @@ func TestConsoleStreamingReadReturnsIdleTimeout(t *testing.T) {
 	defer response.Body.Close()
 	if _, err := io.Copy(io.Discard, response.Body); !errors.Is(err, neterror.ErrUpstreamStreamIdleTimeout) {
 		t.Fatalf("body read error = %v, want ErrUpstreamStreamIdleTimeout", err)
+	}
+}
+
+func TestConsoleNonStreamingConversationReadReturnsIdleTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if serveTestDPoPToken(t, writer, request) {
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusOK)
+		writer.(http.Flusher).Flush()
+		<-request.Context().Done()
+	}))
+	defer server.Close()
+
+	adapter, credential := newConsoleTestAdapter(t, server.URL)
+	adapter.UpdateConfig(Config{BaseURL: server.URL, TimeoutSeconds: 5, StreamIdleTimeoutSeconds: 1})
+	started := time.Now()
+	_, err := adapter.ForwardResponse(context.Background(), provider.ResponseResourceRequest{
+		Credential: credential, Method: http.MethodPost, Path: "/responses", Model: "grok-4.3",
+		Operation: conversation.OperationChat, Streaming: false, NormalizeBody: true,
+		Body: []byte(`{"model":"grok-4.3","messages":[{"role":"user","content":"hello"}]}`),
+	})
+	if !errors.Is(err, neterror.ErrUpstreamStreamIdleTimeout) || neterror.IdleTimeoutObservedData(err) {
+		t.Fatalf("body read error = %#v, observed=%t", err, neterror.IdleTimeoutObservedData(err))
+	}
+	if elapsed := time.Since(started); elapsed >= 3*time.Second {
+		t.Fatalf("non-streaming idle timeout took %s", elapsed)
+	}
+}
+
+func TestConsoleNonStreamingConversationRejectsEmptySuccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if serveTestDPoPToken(t, writer, request) {
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	adapter, credential := newConsoleTestAdapter(t, server.URL)
+	_, err := adapter.ForwardResponse(context.Background(), provider.ResponseResourceRequest{
+		Credential: credential, Method: http.MethodPost, Path: "/responses", Model: "grok-4.3",
+		Operation: conversation.OperationChat, Streaming: false, NormalizeBody: true,
+		Body: []byte(`{"model":"grok-4.3","messages":[{"role":"user","content":"hello"}]}`),
+	})
+	if !errors.Is(err, neterror.ErrUpstreamResponseEmpty) {
+		t.Fatalf("empty response error = %v", err)
 	}
 }
 
@@ -1243,128 +1580,6 @@ func TestDPoPSessionCacheUsesBoundedLRUEviction(t *testing.T) {
 	}
 }
 
-func TestConsoleMediaChatInputUsesLatestUserMessage(t *testing.T) {
-	body := []byte(`{
-		"model":"grok-imagine-image",
-		"messages":[
-			{"role":"user","content":"old prompt"},
-			{"role":"assistant","content":"old answer"},
-			{"role":"user","content":[
-				{"type":"text","text":"restyle this"},
-				{"type":"image_url","image_url":{"url":"https://example.com/input.png"}}
-			]}
-		],
-		"image_config":{"n":2,"response_format":"b64_json","aspect_ratio":"3:2","resolution":"2k"}
-	}`)
-	input, prompt, images, err := parseConsoleMediaChatInput(body, "grok-imagine-image")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if prompt != "restyle this" || len(images) != 1 || images[0] != "https://example.com/input.png" {
-		t.Fatalf("prompt=%q images=%#v", prompt, images)
-	}
-	count, format, _, ratio, resolution := consoleImageChatOptions(input)
-	if count != 2 || format != "b64_json" || ratio != "3:2" || resolution != "2k" {
-		t.Fatalf("image options = %d %q %q %q", count, format, ratio, resolution)
-	}
-}
-
-func TestConsoleMediaChatCompletionGeneratesAndEditsImages(t *testing.T) {
-	imageBytes := []byte("\x89PNG\r\n\x1a\nchat-image")
-	for _, test := range []struct {
-		name      string
-		model     string
-		body      string
-		wantPath  string
-		wantImage bool
-	}{
-		{name: "generation", model: "grok-imagine-image", body: `{"model":"grok-imagine-image","messages":[{"role":"user","content":"draw a fox"}]}`, wantPath: "/v1/images/generations"},
-		{name: "quality edit", model: "grok-imagine-image-quality", body: `{"model":"grok-imagine-image-quality","messages":[{"role":"user","content":[{"type":"text","text":"make it cinematic"},{"type":"image_url","image_url":{"url":"https://example.com/input.png"}}]}]}`, wantPath: "/v1/images/edits", wantImage: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			var server *httptest.Server
-			server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-				if serveTestDPoPToken(t, writer, request) {
-					return
-				}
-				if request.URL.Path == "/generated.png" {
-					writer.Header().Set("Content-Type", "image/png")
-					_, _ = writer.Write(imageBytes)
-					return
-				}
-				if request.URL.Path != test.wantPath {
-					http.NotFound(writer, request)
-					return
-				}
-				verifyTestDPoPProof(t, request)
-				var payload map[string]any
-				if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
-					t.Error(err)
-				}
-				if payload["model"] != test.model {
-					t.Errorf("model = %#v", payload["model"])
-				}
-				if test.wantImage && payload["image"] == nil {
-					t.Errorf("edit payload = %#v", payload)
-				}
-				_ = json.NewEncoder(writer).Encode(map[string]any{"data": []any{map[string]any{"url": server.URL + "/generated.png"}}})
-			}))
-			t.Cleanup(server.Close)
-			store := &consoleImageAssetStoreStub{}
-			adapter, credential := newConsoleTestAdapterWithAssets(t, server.URL, store)
-			response, err := adapter.ForwardResponse(context.Background(), provider.ResponseResourceRequest{
-				Credential: credential, Method: http.MethodPost, Path: "/responses", Model: test.model,
-				Operation: conversation.OperationChat, NormalizeBody: true, Body: []byte(test.body),
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer response.Body.Close()
-			data, err := io.ReadAll(response.Body)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var result struct {
-				Object  string `json:"object"`
-				Choices []struct {
-					Message struct {
-						Content string `json:"content"`
-					} `json:"message"`
-				} `json:"choices"`
-			}
-			if json.Unmarshal(data, &result) != nil || result.Object != "chat.completion" || len(result.Choices) != 1 {
-				t.Fatalf("chat response = %s", data)
-			}
-			if result.Choices[0].Message.Content != "![image](https://local.example/v1/media/images/console-1)" {
-				t.Fatalf("content = %q", result.Choices[0].Message.Content)
-			}
-		})
-	}
-}
-
-func TestConsoleVideoChatOptionsAndStreamingResponse(t *testing.T) {
-	var input consoleMediaChatInput
-	if err := json.Unmarshal([]byte(`{"stream":true,"video_config":{"duration":"4","size":"720x1280","resolution":"480p"}}`), &input); err != nil {
-		t.Fatal(err)
-	}
-	duration, ratio, resolution, err := consoleVideoChatOptions(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if duration != 4 || ratio != "9:16" || resolution != "480p" {
-		t.Fatalf("video options = %d %q %q", duration, ratio, resolution)
-	}
-	response := consoleChatCompletionResponse("grok-imagine-video", "https://local.example/v1/media/videos/vid_1", true, duration)
-	defer response.Body.Close()
-	data, err := io.ReadAll(response.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if response.Header.Get("Content-Type") != "text/event-stream" || !bytes.Contains(data, []byte("chat.completion.chunk")) || !bytes.Contains(data, []byte("data: [DONE]")) {
-		t.Fatalf("stream response headers=%#v body=%s", response.Header, data)
-	}
-}
-
 func TestConsoleImageGenerationForwardsStandardDPoPRequest(t *testing.T) {
 	imageBytes := []byte("\x89PNG\r\n\x1a\nconsole-image")
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -1484,6 +1699,43 @@ func TestConsoleImageEditForwardsMultipleImages(t *testing.T) {
 	}
 }
 
+func TestConsoleImage20ForwardsQualityAndRejectsItForLegacyModels(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if serveTestDPoPToken(t, writer, request) {
+			return
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+			t.Error(err)
+		}
+		if payload["model"] != "grok-imagine-image-2.0" || payload["quality"] != "low" || payload["resolution"] != "2k" {
+			t.Errorf("Image 2.0 payload = %#v", payload)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"data":[{"b64_json":"aW1hZ2U="}]}`))
+	}))
+	t.Cleanup(server.Close)
+	adapter, credential := newConsoleTestAdapter(t, server.URL)
+	response, err := adapter.GenerateImage(context.Background(), provider.ImageGenerationRequest{
+		Credential: credential, Model: "grok-imagine-image-2.0", Prompt: "draw", Count: 1,
+		Resolution: "2k", Quality: "low", ResponseFormat: "b64_json",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	legacy, err := adapter.GenerateImage(context.Background(), provider.ImageGenerationRequest{
+		Credential: credential, Model: "grok-imagine-image", Prompt: "draw", Count: 1, Quality: "low",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer legacy.Body.Close()
+	if legacy.StatusCode != http.StatusBadRequest {
+		t.Fatalf("legacy quality response = %#v", legacy)
+	}
+}
+
 func TestConsoleVideoCreatesAndPollsStandardResources(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if serveTestDPoPToken(t, writer, request) {
@@ -1497,12 +1749,8 @@ func TestConsoleVideoCreatesAndPollsStandardResources(t *testing.T) {
 			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 				t.Error(err)
 			}
-			if payload["model"] != "grok-imagine-video" || payload["duration"] != float64(10) || payload["resolution"] != "720p" {
+			if payload["model"] != "grok-imagine-video" || payload["duration"] != float64(6) || payload["resolution"] != "720p" {
 				t.Errorf("video payload = %#v", payload)
-			}
-			references, _ := payload["reference_images"].([]any)
-			if len(references) != 2 || payload["image"] != nil {
-				t.Errorf("video references payload = %#v", payload)
 			}
 			_, _ = writer.Write([]byte(`{"request_id":"upstream-video-1"}`))
 		case request.Method == http.MethodGet && request.URL.Path == "/v1/videos/upstream-video-1":
@@ -1515,9 +1763,8 @@ func TestConsoleVideoCreatesAndPollsStandardResources(t *testing.T) {
 	adapter, credential := newConsoleTestAdapter(t, server.URL)
 	progress := 0
 	result, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
-		Credential: credential, Prompt: "animate", Duration: 15, AspectRatio: "16:9", Resolution: "720p",
-		ReferenceURLs: []string{"https://example.com/first.png", "https://example.com/second.png"},
-		Progress:      func(value int) { progress = value },
+		Credential: credential, Prompt: "animate", Duration: 6, AspectRatio: "16:9", Resolution: "720p",
+		Progress: func(value int) { progress = value },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1527,24 +1774,329 @@ func TestConsoleVideoCreatesAndPollsStandardResources(t *testing.T) {
 	}
 }
 
+func TestConsoleVideoCreateFailureStagesPreserveRetrySafety(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    int
+		body      string
+		wantStage provider.VideoStage
+	}{
+		{name: "malformed successful response", status: http.StatusOK, body: `{"status":"queued"}`, wantStage: provider.VideoStageSubmitted},
+		{name: "explicit rate limit rejection", status: http.StatusTooManyRequests, body: `{"error":"rate limited"}`, wantStage: provider.VideoStageCreate},
+		{name: "server failure result unknown", status: http.StatusInternalServerError, body: `{"error":"failed"}`, wantStage: provider.VideoStageSubmitted},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if serveTestDPoPToken(t, writer, request) {
+					return
+				}
+				verifyTestDPoPProof(t, request)
+				writer.Header().Set("Content-Type", "application/json")
+				writer.WriteHeader(test.status)
+				_, _ = io.WriteString(writer, test.body)
+			}))
+			t.Cleanup(server.Close)
+			adapter, credential := newConsoleTestAdapter(t, server.URL)
+			_, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
+				Credential: credential, Model: "grok-imagine-video", Prompt: "test", Duration: 5, Resolution: "720p",
+			})
+			stage, ok := provider.VideoErrorStage(err)
+			if !ok || stage != test.wantStage {
+				t.Fatalf("stage = %q, ok=%t, err=%v; want %q", stage, ok, err, test.wantStage)
+			}
+		})
+	}
+}
+
+func TestConsoleVideoPostsReferenceImages(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if serveTestDPoPToken(t, writer, request) {
+			return
+		}
+		verifyTestDPoPProof(t, request)
+		writer.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/videos/generations":
+			var payload map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Error(err)
+			}
+			if _, exists := payload["image"]; exists {
+				t.Errorf("multi-reference payload must not include image: %#v", payload)
+			}
+			references, ok := payload["reference_images"].([]any)
+			if !ok || len(references) != 3 {
+				t.Errorf("reference_images = %#v", payload["reference_images"])
+			} else {
+				first, _ := references[0].(map[string]any)
+				third, _ := references[2].(map[string]any)
+				if first["url"] != "https://example.com/a.png" || third["url"] != "https://example.com/c.png" {
+					t.Errorf("reference_images = %#v", references)
+				}
+			}
+			_, _ = writer.Write([]byte(`{"request_id":"upstream-video-ref-1"}`))
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/videos/upstream-video-ref-1":
+			_, _ = writer.Write([]byte(`{"status":"done","progress":100,"video":{"url":"https://vidgen.x.ai/result-ref.mp4"}}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+	adapter, credential := newConsoleTestAdapter(t, server.URL)
+	result, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
+		Credential: credential, Prompt: "animate", Duration: 6, AspectRatio: "16:9", Resolution: "720p",
+		ReferenceURLs: []string{
+			"https://example.com/a.png",
+			"https://example.com/b.png",
+			"https://example.com/c.png",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.URL != "https://vidgen.x.ai/result-ref.mp4" || result.ContentType != "video/mp4" {
+		t.Fatalf("video result = %#v", result)
+	}
+}
+
+func TestConsoleVideoPostsSingleReferenceImage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if serveTestDPoPToken(t, writer, request) {
+			return
+		}
+		verifyTestDPoPProof(t, request)
+		writer.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/videos/generations":
+			var payload map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Error(err)
+			}
+			if _, exists := payload["image"]; exists {
+				t.Errorf("single reference must not coerce to image: %#v", payload)
+			}
+			references, ok := payload["reference_images"].([]any)
+			if !ok || len(references) != 1 {
+				t.Errorf("reference_images = %#v", payload["reference_images"])
+			} else {
+				first, _ := references[0].(map[string]any)
+				if first["url"] != "https://example.com/ref-only.png" {
+					t.Errorf("reference_images = %#v", references)
+				}
+			}
+			_, _ = writer.Write([]byte(`{"request_id":"upstream-video-ref-single"}`))
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/videos/upstream-video-ref-single":
+			_, _ = writer.Write([]byte(`{"status":"done","progress":100,"video":{"url":"https://vidgen.x.ai/result-ref-single.mp4"}}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+	adapter, credential := newConsoleTestAdapter(t, server.URL)
+	result, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
+		Credential: credential, Prompt: "animate", Duration: 6, AspectRatio: "16:9", Resolution: "720p",
+		ReferenceURLs: []string{"https://example.com/ref-only.png"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.URL != "https://vidgen.x.ai/result-ref-single.mp4" {
+		t.Fatalf("video result = %#v", result)
+	}
+}
+
+func TestConsoleVideoRejectsImageWithReferences(t *testing.T) {
+	adapter, credential := newConsoleTestAdapter(t, "https://console.example")
+	_, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
+		Credential: credential, Prompt: "animate", Duration: 6, AspectRatio: "16:9", Resolution: "720p",
+		ImageURL:      "https://example.com/first.png",
+		ReferenceURLs: []string{"https://example.com/ref.png"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "不能与") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestConsoleVideoPostsReferenceAudios(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if serveTestDPoPToken(t, writer, request) {
+			return
+		}
+		verifyTestDPoPProof(t, request)
+		writer.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/videos/generations":
+			var payload map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Error(err)
+			}
+			if _, exists := payload["image"]; exists {
+				t.Errorf("image = %#v", payload["image"])
+			}
+			references, ok := payload["reference_images"].([]any)
+			if !ok || len(references) != 1 {
+				t.Errorf("reference_images = %#v", payload["reference_images"])
+			} else {
+				first, _ := references[0].(map[string]any)
+				if first["url"] != "https://example.com/person.png" {
+					t.Errorf("reference_images = %#v", references)
+				}
+			}
+			audios, ok := payload["reference_audios"].([]any)
+			if !ok || len(audios) != 1 {
+				t.Errorf("reference_audios = %#v", payload["reference_audios"])
+			} else if first, _ := audios[0].(map[string]any); first["voice_id"] != "eve" {
+				t.Errorf("reference_audios = %#v", audios)
+			}
+			_, _ = writer.Write([]byte(`{"request_id":"upstream-video-ref-audio"}`))
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/videos/upstream-video-ref-audio":
+			_, _ = writer.Write([]byte(`{"status":"done","progress":100,"video":{"url":"https://vidgen.x.ai/result-ref-audio.mp4","duration":8}}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+	adapter, credential := newConsoleTestAdapter(t, server.URL)
+	result, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
+		Credential: credential, Prompt: "speak", Duration: 8, AspectRatio: "9:16", Resolution: "720p",
+		ReferenceURLs:   []string{"https://example.com/person.png"},
+		ReferenceAudios: []string{"eve"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.URL != "https://vidgen.x.ai/result-ref-audio.mp4" {
+		t.Fatalf("video result = %#v", result)
+	}
+}
+
+// Measured upstream ceiling: 8 references answer 400 "Too many reference images:
+// 8. Maximum allowed is 7." on both grok-imagine-video and grok-imagine-video-1.5.
+func TestConsoleVideoRejectsTooManyReferenceImages(t *testing.T) {
+	adapter, credential := newConsoleTestAdapter(t, "https://console.example")
+	references := make([]string, provider.ConsoleVideoMaxReferenceImages+1)
+	for i := range references {
+		references[i] = "https://example.com/" + strings.Repeat("x", i+1) + ".png"
+	}
+	_, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
+		Credential: credential, Prompt: "animate", Duration: 6, ReferenceURLs: references,
+	})
+	if err == nil || !strings.Contains(err.Error(), "最多支持") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestConsoleVideoRejectsTooManyCombinedImages(t *testing.T) {
+	adapter, credential := newConsoleTestAdapter(t, "https://console.example")
+	references := make([]string, provider.ConsoleVideoMaxReferenceImages)
+	for i := range references {
+		references[i] = "https://example.com/" + strings.Repeat("y", i+1) + ".png"
+	}
+	_, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
+		Credential: credential, Prompt: "animate", Duration: 6,
+		ImageURL: "https://example.com/first.png", ReferenceURLs: references,
+	})
+	if err == nil || !(strings.Contains(err.Error(), "不能与") || strings.Contains(err.Error(), "最多支持")) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+// Measured: grok-imagine-video with reference_images and duration=15 answers
+// 400 "Duration 15s exceeds the maximum allowed for reference-to-video, which is
+// 10s." The image field (image-to-video) and grok-imagine-video-1.5 both keep 15s.
+func TestConsoleVideoRejectsLongReferenceDurationOnBaseModel(t *testing.T) {
+	adapter, credential := newConsoleTestAdapter(t, "https://console.example")
+	_, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
+		Credential: credential, Prompt: "animate", Duration: 15,
+		ReferenceURLs: []string{"https://example.com/ref.png"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "最长 10 秒") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+// The same 15s request must stay allowed for grok-imagine-video-1.5.
+func TestConsoleVideo15AllowsLongReferenceDuration(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if serveTestDPoPToken(t, writer, request) {
+			return
+		}
+		verifyTestDPoPProof(t, request)
+		writer.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/videos/generations":
+			_, _ = writer.Write([]byte(`{"request_id":"upstream-video-15s"}`))
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/videos/upstream-video-15s":
+			_, _ = writer.Write([]byte(`{"status":"done","progress":100,"video":{"url":"https://vidgen.x.ai/result-15s.mp4"}}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+	adapter, credential := newConsoleTestAdapter(t, server.URL)
+	result, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
+		Credential: credential, Model: "grok-imagine-video-1.5", Prompt: "animate", Duration: 15,
+		ReferenceURLs: []string{"https://example.com/ref.png"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.URL != "https://vidgen.x.ai/result-15s.mp4" {
+		t.Fatalf("video result = %#v", result)
+	}
+}
+
+func TestConsoleVideoUsesImagineVideo15Model(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if serveTestDPoPToken(t, writer, request) {
+			return
+		}
+		verifyTestDPoPProof(t, request)
+		writer.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/videos/generations":
+			var payload map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Error(err)
+			}
+			if payload["model"] != "grok-imagine-video-1.5" || payload["resolution"] != "1080p" {
+				t.Errorf("video payload = %#v", payload)
+			}
+			_, _ = writer.Write([]byte(`{"request_id":"upstream-video-15"}`))
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/videos/upstream-video-15":
+			_, _ = writer.Write([]byte(`{"status":"done","progress":100,"video":{"url":"https://vidgen.x.ai/result-15.mp4"}}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+	adapter, credential := newConsoleTestAdapter(t, server.URL)
+	result, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
+		Credential: credential, Model: "grok-imagine-video-1.5", Prompt: "animate", Duration: 6, AspectRatio: "16:9", Resolution: "1080p",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.URL != "https://vidgen.x.ai/result-15.mp4" {
+		t.Fatalf("video result = %#v", result)
+	}
+}
+
+func TestConsoleVideo15Rejects1080pReferenceMode(t *testing.T) {
+	adapter, credential := newConsoleTestAdapter(t, "https://console.example")
+	_, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
+		Credential: credential, Model: "grok-imagine-video-1.5", Prompt: "animate", Duration: 6, Resolution: "1080p",
+		ReferenceURLs: []string{"https://example.com/reference.png"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "最高支持 720p") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestParseConsoleVideoStatusRejectsUnknownState(t *testing.T) {
 	if _, _, err := parseConsoleVideoStatus([]byte(`{"status":"mystery"}`), nil); err == nil || !strings.Contains(err.Error(), "状态无效") {
 		t.Fatalf("unknown status error = %v", err)
-	}
-}
-
-func TestParseConsoleVideoStatusClassifiesInputDownloadFailure(t *testing.T) {
-	body := []byte(`{"status":"failed","error":{"code":"image_download_error","message":"Failed to download the provided image (image_download_error=image_download_interrupted)"}}`)
-	_, _, err := parseConsoleVideoStatus(body, nil)
-	if !errors.Is(err, provider.ErrVideoInputDownload) {
-		t.Fatalf("input download error=%v", err)
-	}
-}
-
-func TestConsoleMediaUpstreamErrorClassifiesInputDownloadFailure(t *testing.T) {
-	err := newConsoleMediaUpstreamError(http.StatusBadRequest, []byte(`{"error":{"code":"image_download_error","message":"Failed to download the provided image"}}`))
-	if !errors.Is(err, provider.ErrVideoInputDownload) {
-		t.Fatalf("synchronous input download error=%v", err)
 	}
 }
 
@@ -1648,7 +2200,7 @@ func newConsoleTestAdapter(t *testing.T, baseURL string) (*Adapter, account.Cred
 	return newConsoleTestAdapterWithAssets(t, baseURL, nil)
 }
 
-func newConsoleTestAdapterWithAssets(t *testing.T, baseURL string, assets provider.ConsoleMediaAssetStore) (*Adapter, account.Credential) {
+func newConsoleTestAdapterWithAssets(t *testing.T, baseURL string, assets provider.ImageAssetStore) (*Adapter, account.Credential) {
 	t.Helper()
 	cipher, err := security.NewCipher(base64.StdEncoding.EncodeToString(make([]byte, 32)))
 	if err != nil {
@@ -1677,21 +2229,6 @@ func (s *consoleImageAssetStoreStub) SaveImage(_ context.Context, data []byte) (
 
 func (*consoleImageAssetStoreStub) PublicImageURL(id string) string {
 	return "https://local.example/v1/media/images/" + id
-}
-
-func (s *consoleImageAssetStoreStub) SaveVideo(_ context.Context, _ string, contentType string, body io.Reader) (mediadomain.Asset, error) {
-	data, err := io.ReadAll(body)
-	if err != nil {
-		return mediadomain.Asset{}, err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.saved = append(s.saved, bytes.Clone(data))
-	return mediadomain.Asset{ID: fmt.Sprintf("video-%d", len(s.saved)), MIMEType: contentType}, nil
-}
-
-func (*consoleImageAssetStoreStub) PublicVideoURL(id string) string {
-	return "https://local.example/v1/media/videos/" + id
 }
 
 func (s *consoleImageAssetStoreStub) Saved() [][]byte {
@@ -1767,4 +2304,100 @@ func (r *recordingConsoleEgressRepository) UpdateCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.updates
+}
+
+func TestConsoleVideoEditPostsVideoAndPolls(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if serveTestDPoPToken(t, writer, request) {
+			return
+		}
+		verifyTestDPoPProof(t, request)
+		writer.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/videos/edits":
+			var payload map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Error(err)
+			}
+			if payload["model"] != "grok-imagine-video" || payload["prompt"] != "add necklace" {
+				t.Errorf("edit payload = %#v", payload)
+			}
+			if _, exists := payload["duration"]; exists {
+				t.Errorf("edit payload must not include duration: %#v", payload)
+			}
+			video, ok := payload["video"].(map[string]any)
+			if !ok || video["url"] != "https://example.com/source.mp4" {
+				t.Errorf("edit video = %#v", payload["video"])
+			}
+			_, _ = writer.Write([]byte(`{"request_id":"upstream-video-edit-1"}`))
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/videos/upstream-video-edit-1":
+			_, _ = writer.Write([]byte(`{"status":"done","progress":100,"video":{"url":"https://vidgen.x.ai/result-edit.mp4"}}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+	adapter, credential := newConsoleTestAdapter(t, server.URL)
+	result, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
+		Credential: credential, Model: "grok-imagine-video", Operation: provider.VideoOperationEdit,
+		Prompt: "add necklace", VideoURL: "https://example.com/source.mp4",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.URL != "https://vidgen.x.ai/result-edit.mp4" {
+		t.Fatalf("edit result = %#v", result)
+	}
+}
+
+func TestConsoleVideoExtendPostsVideoAndPolls(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if serveTestDPoPToken(t, writer, request) {
+			return
+		}
+		verifyTestDPoPProof(t, request)
+		writer.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/videos/extensions":
+			var payload map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Error(err)
+			}
+			if payload["model"] != "grok-imagine-video" || payload["duration"] != float64(4) || payload["prompt"] != "pan left" {
+				t.Errorf("extend payload = %#v", payload)
+			}
+			video, ok := payload["video"].(map[string]any)
+			if !ok || video["url"] != "https://example.com/source.mp4" {
+				t.Errorf("extend video = %#v", payload["video"])
+			}
+			_, _ = writer.Write([]byte(`{"request_id":"upstream-video-extend-1"}`))
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/videos/upstream-video-extend-1":
+			_, _ = writer.Write([]byte(`{"status":"done","progress":100,"video":{"url":"https://vidgen.x.ai/result-extend.mp4"}}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+	adapter, credential := newConsoleTestAdapter(t, server.URL)
+	result, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
+		Credential: credential, Model: "grok-imagine-video", Operation: provider.VideoOperationExtend,
+		Prompt: "pan left", Duration: 4, VideoURL: "https://example.com/source.mp4",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.URL != "https://vidgen.x.ai/result-extend.mp4" {
+		t.Fatalf("extend result = %#v", result)
+	}
+}
+
+func TestConsoleVideoEditRejectsNonImagineVideoModel(t *testing.T) {
+	adapter, credential := newConsoleTestAdapter(t, "http://127.0.0.1")
+	_, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{
+		Credential: credential, Model: "grok-imagine-video-1.5", Operation: provider.VideoOperationEdit,
+		Prompt: "x", VideoURL: "https://example.com/source.mp4",
+	})
+	if err == nil || !strings.Contains(err.Error(), "grok-imagine-video") {
+		t.Fatalf("err = %v", err)
+	}
 }

@@ -225,8 +225,8 @@ func consoleImageChatMarkdown(data []byte) (string, error) {
 }
 
 func (a *Adapter) forwardVideoChatCompletion(ctx context.Context, request provider.ResponseResourceRequest, input consoleMediaChatInput, prompt string, imageURLs []string, streaming bool) (*provider.Response, error) {
-	if len(imageURLs) > consoleMaxVideoImages {
-		return invalidConversationResponse(conversation.OperationChat, fmt.Errorf("Console grok-imagine-video 最多支持 %d 张首图", consoleMaxVideoImages)), nil
+	if len(imageURLs) > provider.ConsoleVideoMaxReferenceImages {
+		return invalidConversationResponse(conversation.OperationChat, fmt.Errorf("Console grok-imagine-video 最多支持 %d 张参考图", provider.ConsoleVideoMaxReferenceImages)), nil
 	}
 	duration, ratio, resolution, err := consoleVideoChatOptions(input)
 	if err != nil {
@@ -312,7 +312,7 @@ func consoleVideoRatioFromSize(size string) string {
 }
 
 func (a *Adapter) localizeConsoleChatVideo(ctx context.Context, request provider.ResponseResourceRequest, result provider.VideoResult) (string, error) {
-	if a.assets == nil {
+	if a.mediaAssets == nil {
 		return "", provider.NewMediaPostProcessingError(provider.MediaPostProcessingStorage, errors.New("视频媒体存储未配置"))
 	}
 	var lastErr error
@@ -321,10 +321,10 @@ func (a *Adapter) localizeConsoleChatVideo(ctx context.Context, request provider
 		if downloadErr != nil {
 			lastErr = provider.NewMediaPostProcessingError(provider.MediaPostProcessingDownload, downloadErr)
 		} else {
-			asset, saveErr := a.assets.SaveVideo(ctx, "", contentType, body)
+			asset, saveErr := a.mediaAssets.SaveVideo(ctx, "", contentType, body)
 			_ = body.Close()
 			if saveErr == nil {
-				return a.assets.PublicVideoURL(asset.ID), nil
+				return a.mediaAssets.PublicVideoURL(asset.ID), nil
 			}
 			lastErr = provider.NewMediaPostProcessingError(provider.MediaPostProcessingStorage, saveErr)
 		}

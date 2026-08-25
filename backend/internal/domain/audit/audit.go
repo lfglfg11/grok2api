@@ -12,6 +12,10 @@ const (
 	OperationImage      Operation = "image"
 	OperationImageEdit  Operation = "image_edit"
 	OperationVideo      Operation = "video"
+	OperationTTS        Operation = "tts"
+	OperationSTT        Operation = "stt"
+	OperationRealtime   Operation = "realtime"
+	OperationVoice      Operation = "voice"
 )
 
 type UsageSource string
@@ -72,12 +76,14 @@ type Record struct {
 	RequestID               string
 	ClientKeyID             uint64
 	ClientKeyName           string
+	ClientIP                string
 	ModelRouteID            uint64
 	ModelPublicID           string
 	ModelUpstreamModel      string
 	Provider                string
 	Operation               Operation
 	UsageSource             UsageSource
+	ReasoningEffort         string
 	AccountID               *uint64
 	AccountName             string
 	EgressNodeID            *uint64
@@ -105,6 +111,9 @@ type Record struct {
 	FirstTokenMS            *int64
 	DurationMS              int64
 	ErrorCode               string
+	RequestMethod           string
+	RequestPath             string
+	RequestHeaders          map[string][]string
 	AttemptCount            int
 	Attempts                []Attempt
 	CreatedAt               time.Time

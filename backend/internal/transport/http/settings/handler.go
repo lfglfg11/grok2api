@@ -102,6 +102,7 @@ type routingConfigDTO struct {
 	CooldownMax                 string                      `json:"cooldownMax"`
 	CapacityWait                string                      `json:"capacityWait"`
 	MaxAttempts                 int                         `json:"maxAttempts"`
+	VideoMaxAttempts            int                         `json:"videoMaxAttempts"`
 	PreferFreeBuild             bool                        `json:"preferFreeBuild"`
 	MarkBuildChatDeniedAsReauth *bool                       `json:"markBuildChatDeniedAsReauth,omitempty"`
 	AccountIsolatedConnections  *bool                       `json:"accountIsolatedConnections,omitempty"`
@@ -119,6 +120,7 @@ type auditConfigDTO struct {
 	BatchSize     int    `json:"batchSize"`
 	FlushInterval string `json:"flushInterval"`
 	CommitDelayMS int    `json:"commitDelayMS"`
+	RetentionDays *int   `json:"retentionDays,omitempty"`
 }
 
 type clientKeyDefaultsConfigDTO struct {
@@ -223,7 +225,7 @@ func (value settingsConfigDTO) toApplication() settingsapp.EditableConfig {
 		},
 		Routing: settingsapp.RoutingConfig{
 			StickyTTL: value.Routing.StickyTTL, CooldownBase: value.Routing.CooldownBase,
-			CooldownMax: value.Routing.CooldownMax, CapacityWait: value.Routing.CapacityWait, MaxAttempts: value.Routing.MaxAttempts,
+			CooldownMax: value.Routing.CooldownMax, CapacityWait: value.Routing.CapacityWait, MaxAttempts: value.Routing.MaxAttempts, VideoMaxAttempts: value.Routing.VideoMaxAttempts,
 			PreferFreeBuild:                     value.Routing.PreferFreeBuild,
 			MarkBuildChatDeniedAsReauth:         boolValue(value.Routing.MarkBuildChatDeniedAsReauth),
 			MarkBuildChatDeniedAsReauthProvided: value.Routing.MarkBuildChatDeniedAsReauth != nil,
@@ -232,6 +234,7 @@ func (value settingsConfigDTO) toApplication() settingsapp.EditableConfig {
 		},
 		Audit: settingsapp.AuditConfig{
 			BufferSize: value.Audit.BufferSize, BatchSize: value.Audit.BatchSize, FlushInterval: value.Audit.FlushInterval, CommitDelayMS: value.Audit.CommitDelayMS,
+			RetentionDays: intValue(value.Audit.RetentionDays), RetentionDaysProvided: value.Audit.RetentionDays != nil,
 		},
 		ClientKeyDefaults: settingsapp.ClientKeyDefaultsConfig{
 			RPMLimit: value.ClientKeyDefaults.RPMLimit, MaxConcurrent: value.ClientKeyDefaults.MaxConcurrent,
@@ -305,7 +308,7 @@ func newSettingsResponse(value settingsapp.Snapshot) settingsResponse {
 			},
 			Routing: routingConfigDTO{
 				StickyTTL: config.Routing.StickyTTL, CooldownBase: config.Routing.CooldownBase,
-				CooldownMax: config.Routing.CooldownMax, CapacityWait: config.Routing.CapacityWait, MaxAttempts: config.Routing.MaxAttempts,
+				CooldownMax: config.Routing.CooldownMax, CapacityWait: config.Routing.CapacityWait, MaxAttempts: config.Routing.MaxAttempts, VideoMaxAttempts: config.Routing.VideoMaxAttempts,
 				MarkBuildChatDeniedAsReauth: boolPointer(config.Routing.MarkBuildChatDeniedAsReauth),
 				PreferFreeBuild:             config.Routing.PreferFreeBuild,
 				AccountIsolatedConnections:  boolPointer(config.Routing.AccountIsolatedConnections),
@@ -316,6 +319,7 @@ func newSettingsResponse(value settingsapp.Snapshot) settingsResponse {
 			},
 			Audit: auditConfigDTO{
 				BufferSize: config.Audit.BufferSize, BatchSize: config.Audit.BatchSize, FlushInterval: config.Audit.FlushInterval, CommitDelayMS: config.Audit.CommitDelayMS,
+				RetentionDays: intPointer(config.Audit.RetentionDays),
 			},
 			ClientKeyDefaults: clientKeyDefaultsConfigDTO{
 				RPMLimit: config.ClientKeyDefaults.RPMLimit, MaxConcurrent: config.ClientKeyDefaults.MaxConcurrent,
@@ -352,6 +356,15 @@ func boolPointer(value bool) *bool { return &value }
 func boolValue(value *bool) bool {
 	if value == nil {
 		return false
+	}
+	return *value
+}
+
+func intPointer(value int) *int { return &value }
+
+func intValue(value *int) int {
+	if value == nil {
+		return 0
 	}
 	return *value
 }

@@ -116,8 +116,7 @@
                     }
                 ],
                 "consumes": [
-                    "application/json",
-                    "multipart/form-data"
+                    "application/json"
                 ],
                 "produces": [
                     "application/json"
@@ -491,14 +490,13 @@
                 }
             }
         },
-        "/v1/videos": {
+        "/v1/videos/edits": {
             "post": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Accepts reference_images as an array containing one or more image URLs. The legacy image and images fields remain supported.",
                 "consumes": [
                     "application/json"
                 ],
@@ -508,15 +506,15 @@
                 "tags": [
                     "Videos"
                 ],
-                "summary": "Create a Sora-compatible asynchronous video task",
+                "summary": "创建异步视频编辑任务",
                 "parameters": [
                     {
-                        "description": "Request",
+                        "description": "请求",
                         "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/httpserver.SwaggerCompatibleVideoRequest"
+                            "$ref": "#/definitions/httpserver.SwaggerVideoGenerationRequest"
                         }
                     }
                 ],
@@ -525,7 +523,57 @@
                         "description": "OK",
                         "schema": {
                             "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
                             "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/videos/extensions": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Videos"
+                ],
+                "summary": "创建异步视频延长任务",
+                "parameters": [
+                    {
+                        "description": "请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/httpserver.SwaggerVideoGenerationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     },
                     "400": {
@@ -648,55 +696,6 @@
                 }
             }
         },
-        "httpserver.SwaggerCompatibleVideoRequest": {
-            "type": "object",
-            "properties": {
-                "aspect_ratio": {
-                    "type": "string",
-                    "example": "16:9"
-                },
-                "duration": {
-                    "type": "integer",
-                    "example": 15
-                },
-                "image": {
-                    "type": "string",
-                    "example": "https://example.com/ref.png"
-                },
-                "images": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "https://example.com/ref-1.png",
-                        "https://example.com/ref-2.png"
-                    ]
-                },
-                "model": {
-                    "type": "string",
-                    "example": "grok-imagine-video-1.5-console"
-                },
-                "prompt": {
-                    "type": "string",
-                    "example": "A cinematic tracking shot in natural light"
-                },
-                "reference_images": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "https://example.com/ref-1.png",
-                        "https://example.com/ref-2.png"
-                    ]
-                },
-                "resolution": {
-                    "type": "string",
-                    "example": "720p"
-                }
-            }
-        },
         "httpserver.SwaggerImageEditRequest": {
             "type": "object",
             "properties": {
@@ -706,12 +705,6 @@
                 },
                 "image": {
                     "$ref": "#/definitions/httpserver.SwaggerImageReference"
-                },
-                "images": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/httpserver.SwaggerImageReference"
-                    }
                 },
                 "model": {
                     "type": "string",
@@ -728,10 +721,6 @@
                 "prompt": {
                     "type": "string",
                     "example": "Change the background to black"
-                },
-                "quality": {
-                    "type": "string",
-                    "example": "high"
                 },
                 "resolution": {
                     "type": "string",
@@ -758,20 +747,6 @@
                     "type": "string",
                     "example": "16:9"
                 },
-                "background": {
-                    "type": "string",
-                    "example": "opaque"
-                },
-                "image": {
-                    "type": "string",
-                    "example": "https://example.com/source.png"
-                },
-                "images": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
                 "model": {
                     "type": "string",
                     "example": "grok-imagine-image-quality"
@@ -788,10 +763,6 @@
                     "type": "string",
                     "example": "A cinematic city at night"
                 },
-                "quality": {
-                    "type": "string",
-                    "example": "high"
-                },
                 "resolution": {
                     "type": "string",
                     "example": "2k"
@@ -799,10 +770,6 @@
                 "response_format": {
                     "type": "string",
                     "example": "url"
-                },
-                "size": {
-                    "type": "string",
-                    "example": "1024x1024"
                 },
                 "stream": {
                     "type": "boolean",
@@ -813,10 +780,6 @@
         "httpserver.SwaggerImageReference": {
             "type": "object",
             "properties": {
-                "image_url": {
-                    "type": "string",
-                    "example": "https://example.com/source.png"
-                },
                 "url": {
                     "type": "string",
                     "example": "https://example.com/source.png"
@@ -880,6 +843,15 @@
                 }
             }
         },
+        "httpserver.SwaggerVideoAudioInput": {
+            "type": "object",
+            "properties": {
+                "voice_id": {
+                    "type": "string",
+                    "example": "eve"
+                }
+            }
+        },
         "httpserver.SwaggerVideoGenerationRequest": {
             "type": "object",
             "properties": {
@@ -891,6 +863,9 @@
                     "type": "integer",
                     "example": 8
                 },
+                "image": {
+                    "$ref": "#/definitions/httpserver.SwaggerVideoMediaInput"
+                },
                 "model": {
                     "type": "string",
                     "example": "grok-imagine-video"
@@ -899,9 +874,37 @@
                     "type": "string",
                     "example": "A cinematic tracking shot in the rain"
                 },
+                "reference_audios": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/httpserver.SwaggerVideoAudioInput"
+                    }
+                },
+                "reference_images": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/httpserver.SwaggerVideoMediaInput"
+                    }
+                },
                 "resolution": {
                     "type": "string",
                     "example": "720p"
+                },
+                "video": {
+                    "$ref": "#/definitions/httpserver.SwaggerVideoMediaInput"
+                }
+            }
+        },
+        "httpserver.SwaggerVideoMediaInput": {
+            "type": "object",
+            "properties": {
+                "file_id": {
+                    "type": "string",
+                    "example": "file_123"
+                },
+                "url": {
+                    "type": "string",
+                    "example": "https://example.com/input.png"
                 }
             }
         }

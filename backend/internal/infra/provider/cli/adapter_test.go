@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,11 +18,14 @@ import (
 
 	"github.com/chenyme/grok2api/backend/internal/domain/account"
 	modeldomain "github.com/chenyme/grok2api/backend/internal/domain/model"
+	settingsdomain "github.com/chenyme/grok2api/backend/internal/domain/settings"
+	"github.com/chenyme/grok2api/backend/internal/infra/buildtransport"
 	infraegress "github.com/chenyme/grok2api/backend/internal/infra/egress"
 	"github.com/chenyme/grok2api/backend/internal/infra/provider"
 	"github.com/chenyme/grok2api/backend/internal/infra/provider/conversation"
 	"github.com/chenyme/grok2api/backend/internal/infra/runtime/memory"
 	"github.com/chenyme/grok2api/backend/internal/infra/security"
+	"github.com/chenyme/grok2api/backend/internal/pkg/neterror"
 	"github.com/chenyme/grok2api/backend/internal/pkg/reasoningreplay"
 )
 
@@ -29,6 +33,16 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return fn(request)
+}
+
+func TestBuildDirectTransportEnablesHTTP2Health(t *testing.T) {
+	transport := newBuildHTTPTransport(5 * time.Minute)
+	if transport.IdleConnTimeout != buildtransport.IdleConnTimeout {
+		t.Fatalf("idle connection timeout = %s", transport.IdleConnTimeout)
+	}
+	if transport.TLSNextProto["h2"] == nil {
+		t.Fatal("Build direct transport did not install HTTP/2 health checks")
+	}
 }
 
 func TestResponseRequestForcedEgressOverridesCredentialBinding(t *testing.T) {
@@ -60,17 +74,108 @@ func TestResponseRequestForcedEgressOverridesCredentialBinding(t *testing.T) {
 }
 
 func TestAdapterHotUpdatesDirectResponseHeaderTimeout(t *testing.T) {
-	adapter := NewAdapter(Config{ResponseHeaderTimeout: 2 * time.Minute}, nil)
+	adapter := NewAdapter(Config{ResponseHeaderTimeout: 2 * time.Minute, StreamIdleTimeout: 3 * time.Minute}, nil)
 	before := adapter.base.current.Load()
 	if before.ResponseHeaderTimeout != 2*time.Minute {
 		t.Fatalf("initial timeout = %s", before.ResponseHeaderTimeout)
 	}
-	adapter.UpdateConfig(Config{ResponseHeaderTimeout: 7 * time.Minute})
+	if got := adapter.config().StreamIdleTimeout; got != 3*time.Minute {
+		t.Fatalf("initial stream idle timeout = %s", got)
+	}
+	adapter.UpdateConfig(Config{ResponseHeaderTimeout: 7 * time.Minute, StreamIdleTimeout: 11 * time.Minute})
 	after := adapter.base.current.Load()
 	if after == before || after.ResponseHeaderTimeout != 7*time.Minute {
 		t.Fatalf("updated transport=%p timeout=%s", after, after.ResponseHeaderTimeout)
 	}
+	if got := adapter.config().StreamIdleTimeout; got != 11*time.Minute {
+		t.Fatalf("updated stream idle timeout = %s", got)
+	}
 }
+
+func TestAdapterDefaultsStreamIdleTimeout(t *testing.T) {
+	adapter := NewAdapter(Config{}, nil)
+	if got := adapter.config().StreamIdleTimeout; got != settingsdomain.DefaultBuildStreamIdleTimeout {
+		t.Fatalf("stream idle timeout = %s, want %s", got, settingsdomain.DefaultBuildStreamIdleTimeout)
+	}
+}
+
+func TestNonStreamingConversationResponseHealthBoundaries(t *testing.T) {
+	cipher, err := security.NewCipher(base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	encrypted, err := cipher.Encrypt("access-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := provider.ResponseResourceRequest{
+		Credential: account.Credential{ID: 7, Provider: account.ProviderBuild, EncryptedAccessToken: encrypted},
+		Method:     http.MethodPost, Path: "/responses", Model: "grok-4.5", Operation: conversation.OperationChat,
+		NormalizeBody: true, Streaming: false,
+		Body: []byte(`{"model":"grok-4.5","messages":[{"role":"user","content":"hello"}]}`),
+	}
+
+	t.Run("internal idle deadline", func(t *testing.T) {
+		adapter := NewAdapter(Config{BaseURL: "https://build.example/v1", StreamIdleTimeout: 25 * time.Millisecond}, cipher)
+		adapter.http.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{"Content-Type": {"application/json"}},
+				Body: &contextBlockingResponseBody{ctx: req.Context()}, Request: req,
+			}, nil
+		})
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+		started := time.Now()
+		_, err := adapter.ForwardResponse(ctx, request)
+		if !errors.Is(err, neterror.ErrUpstreamStreamIdleTimeout) || neterror.IdleTimeoutObservedData(err) {
+			t.Fatalf("idle error = %#v, observed=%t", err, neterror.IdleTimeoutObservedData(err))
+		}
+		if elapsed := time.Since(started); elapsed >= 250*time.Millisecond {
+			t.Fatalf("idle timeout took %s; parent deadline was used", elapsed)
+		}
+	})
+
+	t.Run("client cancellation remains cancellation", func(t *testing.T) {
+		adapter := NewAdapter(Config{BaseURL: "https://build.example/v1", StreamIdleTimeout: time.Second}, cipher)
+		adapter.http.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{"Content-Type": {"application/json"}},
+				Body: &contextBlockingResponseBody{ctx: req.Context()}, Request: req,
+			}, nil
+		})
+		ctx, cancel := context.WithCancel(context.Background())
+		time.AfterFunc(20*time.Millisecond, cancel)
+		_, err := adapter.ForwardResponse(ctx, request)
+		if !errors.Is(err, context.Canceled) || neterror.IsUpstreamStreamIdleTimeout(err) {
+			t.Fatalf("client cancellation error = %v", err)
+		}
+	})
+
+	t.Run("empty successful body", func(t *testing.T) {
+		adapter := NewAdapter(Config{BaseURL: "https://build.example/v1", StreamIdleTimeout: time.Second}, cipher)
+		adapter.http.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{"Content-Type": {"application/json"}},
+				Body: io.NopCloser(strings.NewReader("")), Request: req,
+			}, nil
+		})
+		_, err := adapter.ForwardResponse(context.Background(), request)
+		if !errors.Is(err, neterror.ErrUpstreamResponseEmpty) {
+			t.Fatalf("empty body error = %v", err)
+		}
+	})
+}
+
+type contextBlockingResponseBody struct {
+	ctx context.Context
+}
+
+func (b *contextBlockingResponseBody) Read([]byte) (int, error) {
+	<-b.ctx.Done()
+	return 0, b.ctx.Err()
+}
+
+func (*contextBlockingResponseBody) Close() error { return nil }
 
 func TestCredentialMetadataMarksNumericBotFlagOneOrTwo(t *testing.T) {
 	cipher, err := security.NewCipher(base64.StdEncoding.EncodeToString(make([]byte, 32)))
@@ -628,6 +733,26 @@ func TestNormalizeAccountModelCapabilitiesAddsComposerOnlyForBuildOAuth(t *testi
 	}
 }
 
+func TestNormalizeAccountModelCapabilitiesKeepsGrok45ForBuildGrok46(t *testing.T) {
+	adapter := &Adapter{}
+	build := account.Credential{Provider: account.ProviderBuild}
+	got := adapter.NormalizeAccountModelCapabilities([]string{buildGrok46Model}, nil, build)
+	if len(got) != 2 || got[0] != buildGrok46Model || got[1] != buildGrok45Model {
+		t.Fatalf("Build Grok 4.6 compatibility capabilities = %#v", got)
+	}
+
+	got = adapter.NormalizeAccountModelCapabilities([]string{buildGrok45Model, buildGrok46Model, buildGrok45Model}, nil, build)
+	if len(got) != 2 || got[0] != buildGrok45Model || got[1] != buildGrok46Model {
+		t.Fatalf("Build Grok 4.5 compatibility was not deduplicated: %#v", got)
+	}
+
+	console := account.Credential{Provider: account.ProviderConsole}
+	got = adapter.NormalizeAccountModelCapabilities([]string{buildGrok46Model}, nil, console)
+	if len(got) != 1 || got[0] != buildGrok46Model {
+		t.Fatalf("Build compatibility leaked to Console: %#v", got)
+	}
+}
+
 func TestGrokSessionIDFollowsConversationIdentity(t *testing.T) {
 	explicit := "019f6b02-5bae-7cf3-b26e-73e85c861749"
 	if value, err := grokSessionID(explicit); err != nil || value != explicit {
@@ -1075,6 +1200,40 @@ func TestForwardResponseInjectsPromptCacheKeyAfterChatConversion(t *testing.T) {
 	usage := payload["usage"].(map[string]any)
 	if payload["object"] != "chat.completion" || usage["prompt_tokens"] != float64(11) || usage["cost_in_usd_ticks"] != float64(7000) || usage["context_details"].(map[string]any)["input_tokens"] != float64(10) {
 		t.Fatalf("chat response = %#v", payload)
+	}
+}
+
+func TestForwardResponseRejectsInvalidChatWebSearchBeforeUpstream(t *testing.T) {
+	cipher, err := security.NewCipher(base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	encrypted, err := cipher.Encrypt("access-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := NewAdapter(Config{BaseURL: "https://cli-chat-proxy.grok.com/v1"}, cipher)
+	upstreamCalled := false
+	adapter.http.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		upstreamCalled = true
+		return nil, errors.New("unexpected upstream call")
+	})
+
+	response, err := adapter.ForwardResponse(context.Background(), provider.ResponseResourceRequest{
+		Credential: account.Credential{Provider: account.ProviderBuild, AuthType: account.AuthTypeOAuth, EncryptedAccessToken: encrypted},
+		Method:     http.MethodPost, Path: "/responses", Model: "grok-4.6", NormalizeBody: true,
+		Operation: conversation.OperationChat,
+		Body: []byte(`{
+			"model":"public","messages":[{"role":"user","content":"search"}],
+			"tools":[{"type":"web_search","filters":{"allowed_domains":["allow.example"],"excluded_domains":["deny.example"]}}]
+		}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if upstreamCalled || response.StatusCode != http.StatusBadRequest {
+		t.Fatalf("upstreamCalled=%v status=%d", upstreamCalled, response.StatusCode)
 	}
 }
 
