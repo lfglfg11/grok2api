@@ -41,6 +41,7 @@ var mediaCatalog = []struct {
 	{PublicID: "grok-imagine-image", UpstreamModel: "grok-imagine-image", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
 	{PublicID: "grok-imagine-image-quality", UpstreamModel: "grok-imagine-image-quality", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
 	{PublicID: "grok-imagine-image-2.0", UpstreamModel: "grok-imagine-image-2.0", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
+	{PublicID: "grok-imagine-image-2.0-2k", UpstreamModel: "grok-imagine-image-2.0", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
 	{PublicID: "grok-imagine-image-quality-2k", UpstreamModel: "grok-imagine-image-quality", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
 	{PublicID: "grok-imagine-image-2k", UpstreamModel: "grok-imagine-image", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
 	{PublicID: "gpt-image-1", UpstreamModel: "grok-imagine-image-quality", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},

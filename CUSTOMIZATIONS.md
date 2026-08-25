@@ -34,7 +34,7 @@ git log --reverse --oneline main..video-image
 | 视频参考图 | 支持 `image`、`images`、`input_reference`、`reference_images` 及消息中的图片 URL | `handler.go`、`gateway/video.go`、`console/media.go` |
 | 远程图片物化 | 上游无法下载参考图时，安全下载到本地并转为可提交输入；图片编辑复用同一策略 | `pkg/remotemedia/image.go`、`gateway/video.go`、`gateway/image.go` |
 | OpenAI Images 兼容 | Generations/Edits 支持 JSON、multipart、多种图片字段、尺寸映射和兼容别名 | `handler.go`、Swagger、`console/catalog.go` |
-| 固定 2K 图片别名 | 两个 `-2k` 模型别名无条件将分辨率改为 `2k` | `domain/model/media_alias.go`、`gateway/image.go` |
+| 固定 2K 图片别名 | 三个 `-2k` 模型别名在 Chat Completions、Images Generations、Images Edits 中都无条件将分辨率改为 `2k` | `domain/model/media_alias.go`、`gateway/image.go`、`console/chat_media.go` |
 | multi-agent 默认工具 | 所有名称中含独立 `multi-agent` 段的 Console 模型默认补齐代码解释器、Web 搜索和 X 搜索 | `console/normalize.go` |
 | 搜索/工具进度透传 | Responses 的服务端工具事件转换为 Chat Completions 的 `reasoning_content` 流 | `conversation/chat_server_tools.go`、`conversation/stream.go` |
 
@@ -132,6 +132,7 @@ GET  /v1/videos/{request_id}/content
 | --- | --- | --- |
 | `grok-imagine-image-2k` | `grok-imagine-image` | 强制 `resolution=2k` |
 | `grok-imagine-image-quality-2k` | `grok-imagine-image-quality` | 强制 `resolution=2k` |
+| `grok-imagine-image-2.0-2k` | `grok-imagine-image-2.0` | 强制 `resolution=2k` |
 | `gpt-image-1`、`gpt-image-1.5` | `grok-imagine-image-quality` | OpenAI 模型名兼容 |
 | `dall-e-2`、`dall-e-3` | `grok-imagine-image` | OpenAI 模型名兼容 |
 
@@ -143,7 +144,7 @@ Images API 的最终兼容行为：
 - `size` 支持 `auto`、直接宽高比和任意正整数 `WIDTHxHEIGHT`，像素尺寸映射到最接近的 Grok 比例。
 - 图片比例额外支持 `2:1`、`1:2`、`19.5:9`、`9:19.5`、`20:9`、`9:20`。
 - `quality`、`background`、`output_compression`、`mask`、`user` 等 OpenAI 专用字段允许传入但不参与当前 Grok 请求。
-- 固定 2K 行为在 Gateway 层应用，生成和编辑都生效，且不改变实际上游模型名。
+- 固定 2K 行为在 Gateway 图片链路和 Console Chat Completions 媒体适配层应用，生成、编辑和聊天接口都生效，且不改变实际上游模型名。
 - URL 输入被上游拒绝下载时，使用第 3.4 节的安全物化回退。
 
 主要冲突热点：`domain/model/media_alias.go`、`gateway/image.go`、`console/catalog.go`、`inference/handler.go`、Swagger 注解及生成文件。
@@ -257,7 +258,7 @@ git merge upstream/main
 - 多参考图视频最长仍为 10 秒。
 - 远程图片下载保留 SSRF、重定向、大小、MIME、凭据隔离保护。
 - Images Generations 带 `image/images` 时仍自动进入编辑流程。
-- 两个 `-2k` 模型仍强制 2K，四个 OpenAI 图片别名映射正确。
+- 三个 `-2k` 模型在三类兼容接口中仍强制 2K，四个 OpenAI 图片别名映射正确。
 - 未来 `*-multi-agent-*` 模型仍补齐三个工具，`tool_choice: none` 仍能关闭。
 - Chat 流把服务端工具进度放在 `reasoning_content`，而不是 `tool_calls`。
 - GHCR 工作流仍为 `video-image` 构建预期架构镜像。

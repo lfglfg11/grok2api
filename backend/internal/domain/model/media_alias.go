@@ -11,7 +11,7 @@ func IsForced2KImageModel(publicModel string) bool {
 		value = strings.TrimPrefix(value, prefix)
 	}
 	switch value {
-	case "grok-imagine-image-quality-2k", "grok-imagine-image-2k":
+	case "grok-imagine-image-quality-2k", "grok-imagine-image-2k", "grok-imagine-image-2.0-2k":
 		return true
 	default:
 		return false

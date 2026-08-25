@@ -281,9 +281,12 @@ Console 使用当前版本内置目录。对话为无状态转发；图片、视
 | `grok-4.5` | 对话 | Chat Completions、Responses、Messages |
 | `grok-4.3` | 对话 | Chat Completions、Responses、Messages |
 | `grok-build-0.1` | 对话 | Chat Completions、Responses、Messages |
-| `grok-imagine-image` | 图像、图像编辑 | Images Generations、Images Edits |
-| `grok-imagine-image-quality` | 图像、图像编辑 | Images Generations、Images Edits |
-| `grok-imagine-image-2.0` | 图像、图像编辑 | Images Generations、Images Edits |
+| `grok-imagine-image` | 图像、图像编辑 | Chat Completions、Images Generations、Images Edits |
+| `grok-imagine-image-quality` | 图像、图像编辑 | Chat Completions、Images Generations、Images Edits |
+| `grok-imagine-image-2.0` | 图像、图像编辑 | Chat Completions、Images Generations、Images Edits |
+| `grok-imagine-image-2k` | 图像、图像编辑 | 同上三个接口；固定使用 2K 分辨率 |
+| `grok-imagine-image-quality-2k` | 图像、图像编辑 | 同上三个接口；固定使用 2K 分辨率 |
+| `grok-imagine-image-2.0-2k` | 图像、图像编辑 | 同上三个接口；固定使用 2K 分辨率 |
 | `grok-imagine-video` | 视频 | Videos |
 | `grok-imagine-video-1.5` | 视频 | 视频生成，包括 Free Console 账号 |
 | `grok-voice-latest`、`grok-voice-think-fast-2.0`、`grok-voice-think-fast-1.0` | 语音 | TTS 和 Realtime WebSocket 代理 |

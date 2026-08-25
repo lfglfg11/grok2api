@@ -10,6 +10,7 @@ func TestApplyForcedImageResolution(t *testing.T) {
 	}{
 		{model: "grok-imagine-image-2k", resolution: "", want: "2k"},
 		{model: "Console/grok-imagine-image-quality-2k", resolution: "1k", want: "2k"},
+		{model: "Console/grok-imagine-image-2.0-2k", resolution: "1k", want: "2k"},
 		{model: "grok-imagine-image", resolution: "1k", want: "1k"},
 	} {
 		if got := ApplyForcedImageResolution(test.model, test.resolution); got != test.want {

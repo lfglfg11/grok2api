@@ -283,9 +283,12 @@ Console uses the catalog built into the current release. Conversation forwarding
 | `grok-4.5` | Conversation | Chat Completions, Responses, Messages |
 | `grok-4.3` | Conversation | Chat Completions, Responses, Messages |
 | `grok-build-0.1` | Conversation | Chat Completions, Responses, Messages |
-| `grok-imagine-image` | Image, Image Edit | Images Generations, Images Edits |
-| `grok-imagine-image-quality` | Image, Image Edit | Images Generations, Images Edits |
-| `grok-imagine-image-2.0` | Image, Image Edit | Images Generations, Images Edits |
+| `grok-imagine-image` | Image, Image Edit | Chat Completions, Images Generations, Images Edits |
+| `grok-imagine-image-quality` | Image, Image Edit | Chat Completions, Images Generations, Images Edits |
+| `grok-imagine-image-2.0` | Image, Image Edit | Chat Completions, Images Generations, Images Edits |
+| `grok-imagine-image-2k` | Image, Image Edit | Same three surfaces; always uses 2K resolution |
+| `grok-imagine-image-quality-2k` | Image, Image Edit | Same three surfaces; always uses 2K resolution |
+| `grok-imagine-image-2.0-2k` | Image, Image Edit | Same three surfaces; always uses 2K resolution |
 | `grok-imagine-video` | Video | Videos |
 | `grok-imagine-video-1.5` | Video | Video generation, including Free Console accounts |
 | `grok-voice-latest`, `grok-voice-think-fast-2.0`, `grok-voice-think-fast-1.0` | Voice | TTS and Realtime WebSocket proxy |

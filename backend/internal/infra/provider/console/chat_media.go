@@ -20,6 +20,7 @@ import (
 )
 
 type consoleMediaChatInput struct {
+	Model       string          `json:"model"`
 	Stream      bool            `json:"stream"`
 	Duration    json.RawMessage `json:"duration"`
 	Seconds     json.RawMessage `json:"seconds"`
@@ -194,6 +195,7 @@ func consoleImageChatOptions(input consoleMediaChatInput) (int, string, string, 
 			resolution = value
 		}
 	}
+	resolution = modeldomain.ApplyForcedImageResolution(input.Model, resolution)
 	return count, format, size, ratio, resolution
 }
 

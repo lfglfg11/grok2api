@@ -56,6 +56,8 @@ func TestCatalogContainsAllConsoleModelsAndAliases(t *testing.T) {
 		{publicID: "Console/grok-imagine-image-quality", capability: modeldomain.CapabilityImageEdit}:    "grok-imagine-image-quality",
 		{publicID: "Console/grok-imagine-image-2.0", capability: modeldomain.CapabilityImage}:            "grok-imagine-image-2.0",
 		{publicID: "Console/grok-imagine-image-2.0", capability: modeldomain.CapabilityImageEdit}:        "grok-imagine-image-2.0",
+		{publicID: "Console/grok-imagine-image-2.0-2k", capability: modeldomain.CapabilityImage}:         "grok-imagine-image-2.0",
+		{publicID: "Console/grok-imagine-image-2.0-2k", capability: modeldomain.CapabilityImageEdit}:     "grok-imagine-image-2.0",
 		{publicID: "Console/grok-imagine-image-quality-2k", capability: modeldomain.CapabilityImage}:     "grok-imagine-image-quality",
 		{publicID: "Console/grok-imagine-image-quality-2k", capability: modeldomain.CapabilityImageEdit}: "grok-imagine-image-quality",
 		{publicID: "Console/grok-imagine-image-2k", capability: modeldomain.CapabilityImage}:             "grok-imagine-image",
@@ -122,6 +124,29 @@ func TestCatalogContainsAllConsoleModelsAndAliases(t *testing.T) {
 	} {
 		if got := adapter.QuotaMode(model); got != want {
 			t.Fatalf("QuotaMode(%q) = %q, want %q", model, got, want)
+		}
+	}
+}
+
+func TestConsoleImageChatOptionsForce2KForAliases(t *testing.T) {
+	for _, model := range []string{
+		"grok-imagine-image-2k",
+		"Console/grok-imagine-image-quality-2k",
+		"grok-imagine-image-2.0-2k",
+	} {
+		_, _, _, _, resolution := consoleImageChatOptions(consoleMediaChatInput{
+			Model:      model,
+			Resolution: "1k",
+			ImageConfig: &struct {
+				Count          *int   `json:"n"`
+				Size           string `json:"size"`
+				AspectRatio    string `json:"aspect_ratio"`
+				Resolution     string `json:"resolution"`
+				ResponseFormat string `json:"response_format"`
+			}{Resolution: "1k"},
+		})
+		if resolution != "2k" {
+			t.Fatalf("consoleImageChatOptions(%q) resolution = %q, want 2k", model, resolution)
 		}
 	}
 }
