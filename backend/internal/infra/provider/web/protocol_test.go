@@ -1293,7 +1293,7 @@ func TestImagineRequestIncludes2KResolution(t *testing.T) {
 	}
 }
 
-func TestImagineRequestPrefersExplicitPixelSize(t *testing.T) {
+func TestImagineRequestCombinesExplicitPixelSizeAndResolution(t *testing.T) {
 	message := imagineRequestMessage("request", "prompt", "1:1", "2k", "2048x2048", false, true, 1)
 	item := message["item"].(map[string]any)
 	content := item["content"].([]any)[0].(map[string]any)
@@ -1301,8 +1301,8 @@ func TestImagineRequestPrefersExplicitPixelSize(t *testing.T) {
 	if properties["imageWidth"] != 2048 || properties["imageHeight"] != 2048 {
 		t.Fatalf("properties=%#v", properties)
 	}
-	if _, exists := properties["resolution"]; exists {
-		t.Fatalf("explicit pixels should omit resolution: %#v", properties)
+	if properties["resolution"] != "2k" {
+		t.Fatalf("properties=%#v", properties)
 	}
 }
 

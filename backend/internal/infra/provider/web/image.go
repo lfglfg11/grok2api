@@ -1783,7 +1783,8 @@ func imagineRequestMessage(id, prompt, ratio, resolution, size string, nsfw, pro
 	if width, height, ok := webImagePixelSize(size); ok {
 		properties["imageWidth"] = width
 		properties["imageHeight"] = height
-	} else if value := webImageResolutionValue(resolution); value != "" {
+	}
+	if value := webImageResolutionValue(resolution); value != "" {
 		properties["resolution"] = value
 	}
 	return map[string]any{"type": "conversation.item.create", "timestamp": time.Now().UnixMilli(), "item": map[string]any{"type": "message", "content": []any{map[string]any{"requestId": id, "text": prompt, "type": "input_text", "properties": properties}}}}
