@@ -1780,16 +1780,16 @@ func imagineResetMessage() map[string]any {
 
 func imagineRequestMessage(id, prompt, ratio, resolution string, nsfw, pro bool, generations int) map[string]any {
 	properties := map[string]any{"section_count": 0, "is_kids_mode": false, "enable_nsfw": nsfw, "skip_upsampler": false, "enable_side_by_side": true, "is_initial": false, "aspect_ratio": ratio, "enable_pro": pro, "num_generations": generations}
-	if value := webImageResolutionName(resolution); value != "" {
-		properties["resolution_name"] = value
+	if value := webImageResolutionValue(resolution); value != "" {
+		properties["resolution"] = value
 	}
 	return map[string]any{"type": "conversation.item.create", "timestamp": time.Now().UnixMilli(), "item": map[string]any{"type": "message", "content": []any{map[string]any{"requestId": id, "text": prompt, "type": "input_text", "properties": properties}}}}
 }
 
-func webImageResolutionName(resolution string) string {
+func webImageResolutionValue(resolution string) string {
 	switch strings.ToLower(strings.TrimSpace(resolution)) {
 	case "2k", "2mp":
-		return "2mp"
+		return "2k"
 	default:
 		return ""
 	}

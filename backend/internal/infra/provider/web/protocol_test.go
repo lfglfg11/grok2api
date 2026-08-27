@@ -1283,12 +1283,12 @@ func TestImagineRequestContainsOnlyProtocolProperties(t *testing.T) {
 	}
 }
 
-func TestImagineRequestMaps2KToTwoMegapixels(t *testing.T) {
+func TestImagineRequestIncludes2KResolution(t *testing.T) {
 	message := imagineRequestMessage("request", "prompt", "1:1", "2k", false, true, 1)
 	item := message["item"].(map[string]any)
 	content := item["content"].([]any)[0].(map[string]any)
 	properties := content["properties"].(map[string]any)
-	if properties["resolution_name"] != "2mp" {
+	if properties["resolution"] != "2k" {
 		t.Fatalf("properties=%#v", properties)
 	}
 }
