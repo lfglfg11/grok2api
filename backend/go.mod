@@ -23,6 +23,7 @@ require (
 	github.com/swaggo/gin-swagger v1.6.1
 	github.com/swaggo/swag v1.16.6
 	golang.org/x/crypto v0.54.0
+	golang.org/x/image v0.44.0
 	golang.org/x/net v0.56.0
 	golang.org/x/sync v0.22.0
 	google.golang.org/protobuf v1.36.10

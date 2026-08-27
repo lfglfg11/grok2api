@@ -132,7 +132,7 @@ GET  /v1/videos/{request_id}/content
 | --- | --- | --- |
 | `grok-imagine-image-2k` | `grok-imagine-image` | 强制 `resolution=2k` |
 | `grok-imagine-image-quality-2k` | `grok-imagine-image-quality` | 强制 `resolution=2k` |
-| `grok-imagine-image-2.0-2k` | `grok-imagine-image-2.0` | Console 路径启用时强制 `resolution=2k`；当前 Web 路径仅作为兼容别名 |
+| `grok-imagine-image-2.0-2k` | `grok-imagine-image-2.0` | 强制 `resolution=2k`；当前 Web 路径对最终成品执行高质量 2K 放大 |
 | `gpt-image-1`、`gpt-image-1.5` | `grok-imagine-image-quality` | OpenAI 模型名兼容 |
 | `dall-e-2`、`dall-e-3` | `grok-imagine-image` | OpenAI 模型名兼容 |
 
@@ -144,8 +144,9 @@ Images API 的最终兼容行为：
 - `size` 支持 `auto`、直接宽高比和任意正整数 `WIDTHxHEIGHT`，像素尺寸映射到最接近的 Grok 比例。
 - 图片比例额外支持 `2:1`、`1:2`、`19.5:9`、`9:19.5`、`20:9`、`9:20`。
 - `quality`、`background`、`output_compression`、`mask`、`user` 等 OpenAI 专用字段允许传入但不参与当前 Grok 请求。
-- 固定 2K 行为只在实际选中 Console Provider 时由 Gateway 图片链路和 Console Chat Completions 媒体适配层应用，且不改变实际上游模型名；不能把 Console 风格的 `resolution=2k` 强塞给 Web。
-- `grok-imagine-image-2.0` 与衍生模型 `grok-imagine-image-2.0-2k` 当前只启用 Web 路由，Chat Completions、Images Generations、Images Edits 都由 Web 承接；`-2k` 在 Web 侧映射到相同的 Imagine 2.0 产品，但 Web 生成忽略 `resolution`，Web 编辑当前只支持 1K，因此不承诺严格 2K 输出。
+- 固定 2K 别名由 Gateway 统一转换为 `resolution=2k`，且不改变实际上游模型名。Web Imagine 生成只向上游发送协议支持的 `aspect_ratio` 和 `resolution`；兼容入参 `size` 只在本地换算宽高比，绝不转发 `size`、`width/height` 或 `imageWidth/imageHeight` 等实验字段。
+- `grok-imagine-image-2.0` 与衍生模型 `grok-imagine-image-2.0-2k` 当前只启用 Web 路由，Chat Completions、Images Generations、Images Edits 都由 Web 承接。真实上游实验确认 Web 当前即使收到 `resolution=2k` 仍返回约 1K 像素，因此当模型为 `grok-imagine-image-2.0-2k` 或请求显式指定 `resolution=2k` 时，服务端会在下载最终成品后使用 Catmull-Rom 高质量缩放生成真实 2K 像素文件，再进行本地存储、URL 返回或 Base64 返回；这属于服务端后处理，不应描述为上游原生 2K。
+- 2K 输出按解析后的 `aspect_ratio` 计算：`1:1` 为 `2048x2048`、`2:3` 为 `2048x3072`、`3:2` 为 `3072x2048`，其他比例保持短边 2048 等比缩放；`auto` 使用上游最终图片的实际比例。流式 partial preview 保持上游预览尺寸，completed 成品及事件尺寸使用放大后的真实像素。
 - Console 已暂时撤下 Imagine 2.0。项目保留 Console 的模型定义、固定 2K 映射和适配代码，但将两条 Console 路由标记为禁用；后续上游恢复时只需重新启用，不需要重做兼容层。
 - Web 图片上游返回 429 时会解析 `Retry-After`、同步额度状态、标记当前账号冷却，并在路由尝试预算内更换其他可用 Web 账号；账号池耗尽后不回退到已禁用的 Console 路径。
 - URL 输入被上游拒绝下载时，使用第 3.4 节的安全物化回退。
@@ -261,7 +262,7 @@ git merge upstream/main
 - 多参考图视频最长仍为 10 秒。
 - 远程图片下载保留 SSRF、重定向、大小、MIME、凭据隔离保护。
 - Images Generations 带 `image/images` 时仍自动进入编辑流程。
-- 三个 `-2k` 模型在三类兼容接口中仍强制 2K，四个 OpenAI 图片别名映射正确。
+- 三个 `-2k` 模型在三类兼容接口中仍强制 2K，四个 OpenAI 图片别名映射正确；Imagine 2.0 Web 最终成品仍执行服务端 2K 放大，且上游请求不得重新出现像素/`size` 字段。
 - 未来 `*-multi-agent-*` 模型仍补齐三个工具，`tool_choice: none` 仍能关闭。
 - Chat 流把服务端工具进度放在 `reasoning_content`，而不是 `tool_calls`。
 - GHCR 工作流仍为 `video-image` 构建预期架构镜像。

@@ -1271,7 +1271,7 @@ func TestPreflightClassifiesAntiBotRejection(t *testing.T) {
 
 func TestImagineRequestContainsOnlyProtocolProperties(t *testing.T) {
 	for _, pro := range []bool{false, true} {
-		message := imagineRequestMessage("request", "prompt", "16:9", "", "", false, pro, 2)
+		message := imagineRequestMessage("request", "prompt", "16:9", "", false, pro, 2)
 		item := message["item"].(map[string]any)
 		content := item["content"].([]any)[0].(map[string]any)
 		properties := content["properties"].(map[string]any)
@@ -1284,7 +1284,7 @@ func TestImagineRequestContainsOnlyProtocolProperties(t *testing.T) {
 }
 
 func TestImagineRequestIncludes2KResolution(t *testing.T) {
-	message := imagineRequestMessage("request", "prompt", "1:1", "2k", "", false, true, 1)
+	message := imagineRequestMessage("request", "prompt", "1:1", "2k", false, true, 1)
 	item := message["item"].(map[string]any)
 	content := item["content"].([]any)[0].(map[string]any)
 	properties := content["properties"].(map[string]any)
@@ -1293,16 +1293,18 @@ func TestImagineRequestIncludes2KResolution(t *testing.T) {
 	}
 }
 
-func TestImagineRequestCombinesExplicitPixelSizeAndResolution(t *testing.T) {
-	message := imagineRequestMessage("request", "prompt", "1:1", "2k", "2048x2048", false, true, 1)
+func TestImagineRequestDoesNotContainPixelFields(t *testing.T) {
+	message := imagineRequestMessage("request", "prompt", "1:1", "2k", false, true, 1)
 	item := message["item"].(map[string]any)
 	content := item["content"].([]any)[0].(map[string]any)
 	properties := content["properties"].(map[string]any)
-	if properties["imageWidth"] != 2048 || properties["imageHeight"] != 2048 {
-		t.Fatalf("properties=%#v", properties)
-	}
 	if properties["resolution"] != "2k" {
 		t.Fatalf("properties=%#v", properties)
+	}
+	for _, field := range []string{"size", "width", "height", "imageWidth", "imageHeight", "image_width", "image_height"} {
+		if _, exists := properties[field]; exists {
+			t.Fatalf("unexpected upstream field %q in properties=%#v", field, properties)
+		}
 	}
 }
 

@@ -7,17 +7,24 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"io"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	fhttp "github.com/bogdanfinn/fhttp"
 	"github.com/bogdanfinn/websocket"
+	"golang.org/x/image/draw"
+	_ "golang.org/x/image/webp"
 
 	"github.com/chenyme/grok2api/backend/internal/domain/account"
 	domainegress "github.com/chenyme/grok2api/backend/internal/domain/egress"
@@ -53,6 +60,11 @@ type imagineImageValue struct {
 	position bool
 }
 
+type imageOutputTransform struct {
+	enabled     bool
+	aspectRatio string
+}
+
 type imagineSlot struct {
 	image          imagineImageValue
 	preview        imagineImageValue
@@ -86,6 +98,78 @@ func imageGenerationUserError(message, param, code string) (*provider.Response, 
 	return jsonProviderResponse(http.StatusBadRequest, map[string]any{"error": map[string]any{
 		"message": message, "type": "image_generation_user_error", "param": param, "code": code,
 	}}), nil
+}
+
+func webImage2KTransform(model, resolution, aspectRatio string) imageOutputTransform {
+	value := strings.ToLower(strings.TrimSpace(model))
+	for _, prefix := range []string{"console/", "web/", "build/"} {
+		value = strings.TrimPrefix(value, prefix)
+	}
+	enabled := value == "grok-imagine-image-2.0-2k" || strings.EqualFold(strings.TrimSpace(resolution), "2k")
+	return imageOutputTransform{enabled: enabled, aspectRatio: strings.TrimSpace(aspectRatio)}
+}
+
+func (transform imageOutputTransform) targetDimensions(source image.Rectangle) (int, int, error) {
+	if !transform.enabled {
+		return source.Dx(), source.Dy(), nil
+	}
+	ratio := strings.ToLower(strings.TrimSpace(transform.aspectRatio))
+	var widthRatio, heightRatio float64
+	if ratio == "" || ratio == "auto" {
+		if source.Dx() <= 0 || source.Dy() <= 0 {
+			return 0, 0, fmt.Errorf("图片尺寸无效")
+		}
+		widthRatio, heightRatio = float64(source.Dx()), float64(source.Dy())
+	} else {
+		parts := strings.Split(ratio, ":")
+		if len(parts) != 2 {
+			return 0, 0, fmt.Errorf("无法解析图片宽高比 %q", transform.aspectRatio)
+		}
+		var err error
+		if widthRatio, err = strconv.ParseFloat(parts[0], 64); err != nil {
+			return 0, 0, fmt.Errorf("无法解析图片宽高比 %q", transform.aspectRatio)
+		}
+		if heightRatio, err = strconv.ParseFloat(parts[1], 64); err != nil {
+			return 0, 0, fmt.Errorf("无法解析图片宽高比 %q", transform.aspectRatio)
+		}
+	}
+	value := widthRatio / heightRatio
+	if value <= 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, 0, fmt.Errorf("图片宽高比无效")
+	}
+	if value >= 1 {
+		return int(math.Round(2048 * value)), 2048, nil
+	}
+	return 2048, int(math.Round(2048 / value)), nil
+}
+
+func transformWebImageOutput(raw []byte, transform imageOutputTransform) ([]byte, int, int, error) {
+	if !transform.enabled {
+		return raw, 0, 0, nil
+	}
+	source, format, err := image.Decode(bytes.NewReader(raw))
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("解码待放大图片: %w", err)
+	}
+	width, height, err := transform.targetDimensions(source.Bounds())
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	if source.Bounds().Dx() == width && source.Bounds().Dy() == height {
+		return raw, width, height, nil
+	}
+	target := image.NewNRGBA(image.Rect(0, 0, width, height))
+	draw.CatmullRom.Scale(target, target.Bounds(), source, source.Bounds(), draw.Over, nil)
+	var output bytes.Buffer
+	if format == "png" {
+		err = png.Encode(&output, target)
+	} else {
+		err = jpeg.Encode(&output, target, &jpeg.Options{Quality: 95})
+	}
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("编码 2K 图片: %w", err)
+	}
+	return output.Bytes(), width, height, nil
 }
 
 func newImagineCollector() *imagineCollector {
@@ -638,6 +722,7 @@ func (a *Adapter) generateWSImage(ctx context.Context, request provider.ImageGen
 }
 
 func (a *Adapter) generateWSImageAttempt(ctx context.Context, request provider.ImageGenerationRequest, count int, format, ratio string, modelConfig imagineModelConfig) (*provider.Response, error) {
+	transform := webImage2KTransform(request.Model, request.Resolution, ratio)
 	cfg := a.config()
 	token, err := a.cipher.Decrypt(request.Credential.EncryptedAccessToken)
 	if err != nil {
@@ -706,7 +791,7 @@ func (a *Adapter) generateWSImageAttempt(ctx context.Context, request provider.I
 		a.egress.Feedback(context.WithoutCancel(ctx), lease.NodeID, 0, err)
 		return nil, err
 	}
-	if err := connection.WriteJSON(imagineRequestMessage(newWebID("img"), request.Prompt, ratio, request.Resolution, request.Size, cfg.AllowNSFW, modelConfig.Pro, modelConfig.ExpectedCount)); err != nil {
+	if err := connection.WriteJSON(imagineRequestMessage(newWebID("img"), request.Prompt, ratio, request.Resolution, cfg.AllowNSFW, modelConfig.Pro, modelConfig.ExpectedCount)); err != nil {
 		a.egress.Feedback(context.WithoutCancel(ctx), lease.NodeID, 0, err)
 		return nil, err
 	}
@@ -715,7 +800,7 @@ func (a *Adapter) generateWSImageAttempt(ctx context.Context, request provider.I
 		streamCtx, cancel := context.WithCancel(ctx)
 		leaseOwned = false
 		connectionOwned = false
-		go a.streamImagineImages(streamCtx, writer, connection, lease, request.Credential, count, request.PartialImages, modelConfig)
+		go a.streamImagineImages(streamCtx, writer, connection, lease, request.Credential, count, request.PartialImages, modelConfig, transform)
 		return &provider.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: streamHeaders(), Body: &cancelBody{ReadCloser: reader, cancel: cancel}, QuotaUnits: count}, nil
 	}
 
@@ -757,7 +842,7 @@ func (a *Adapter) generateWSImageAttempt(ctx context.Context, request provider.I
 		urls = append(urls, image.URL)
 		blobs = append(blobs, image.Blob)
 	}
-	result, err := a.imageResponse(ctx, request.Credential, urls, blobs, count, format)
+	result, err := a.imageResponseWithTransform(ctx, request.Credential, urls, blobs, count, format, transform)
 	if result != nil {
 		result.QuotaUnits = count
 	}
@@ -809,8 +894,8 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 	if resolution == "" {
 		resolution = "1k"
 	}
-	if resolution != "1k" {
-		return invalidImageRequest("Grok Web 图片编辑当前仅支持 resolution=1k")
+	if resolution != "1k" && resolution != "2k" {
+		return invalidImageRequest("Grok Web 图片编辑仅支持 resolution=1k 或 resolution=2k")
 	}
 	format := strings.ToLower(strings.TrimSpace(request.ResponseFormat))
 	if format == "" {
@@ -823,6 +908,7 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 	if err != nil {
 		return invalidImageRequest(err.Error())
 	}
+	transform := webImage2KTransform(request.Model, resolution, ratio)
 	cfg := a.config()
 	token, err := a.cipher.Decrypt(request.Credential.EncryptedAccessToken)
 	if err != nil {
@@ -877,7 +963,7 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 		reader, writer := io.Pipe()
 		streamCtx, cancel := context.WithCancel(ctx)
 		leaseOwned = false
-		go a.streamImageEdit(streamCtx, writer, response.Body, lease, request.Credential, request.PartialImages, request.Size, ratio)
+		go a.streamImageEdit(streamCtx, writer, response.Body, lease, request.Credential, request.PartialImages, request.Size, ratio, transform)
 		return &provider.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: streamHeaders(), Body: &cancelBody{ReadCloser: reader, cancel: cancel}, QuotaUnits: 1}, nil
 	}
 	defer response.Body.Close()
@@ -893,7 +979,7 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 			"type":    "server_error", "code": "image_edit_incomplete",
 		}}), nil
 	}
-	result, err := a.imageResponse(ctx, request.Credential, urls, nil, 1, format)
+	result, err := a.imageResponseWithTransform(ctx, request.Credential, urls, nil, 1, format, transform)
 	if result != nil {
 		result.QuotaUnits = 1
 	}
@@ -963,6 +1049,7 @@ func (a *Adapter) streamImageEdit(
 	partialImages int,
 	size string,
 	aspectRatio string,
+	transform imageOutputTransform,
 ) {
 	defer lease.Release()
 	defer source.Close()
@@ -1013,12 +1100,21 @@ func (a *Adapter) streamImageEdit(
 		_ = writer.CloseWithError(provider.NewMediaPostProcessingError(provider.MediaPostProcessingDownload, err))
 		return
 	}
+	raw, width, height, err := transformWebImageOutput(raw, transform)
+	if err != nil {
+		_ = writer.CloseWithError(provider.NewMediaPostProcessingError(provider.MediaPostProcessingTransform, err))
+		return
+	}
 	if err := a.saveStreamImage(ctx, raw); err != nil {
 		_ = writer.CloseWithError(err)
 		return
 	}
+	completedSize := imageEditEventSize(size, aspectRatio)
+	if width > 0 && height > 0 {
+		completedSize = fmt.Sprintf("%dx%d", width, height)
+	}
 	if err := writeSSE(writer, "image_edit.completed", openAIImageEditStreamEvent(
-		"image_edit.completed", raw, createdAt, imageEditEventSize(size, aspectRatio), 0,
+		"image_edit.completed", raw, createdAt, completedSize, 0,
 	)); err != nil {
 		_ = writer.CloseWithError(err)
 		return
@@ -1456,13 +1552,17 @@ func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *eg
 }
 
 func (a *Adapter) imageResponse(ctx context.Context, credential account.Credential, urls, blobs []string, count int, format string) (*provider.Response, error) {
+	return a.imageResponseWithTransform(ctx, credential, urls, blobs, count, format, imageOutputTransform{})
+}
+
+func (a *Adapter) imageResponseWithTransform(ctx context.Context, credential account.Credential, urls, blobs []string, count int, format string, transform imageOutputTransform) (*provider.Response, error) {
 	data := make([]any, 0, min(count, len(urls)))
 	for index := 0; index < count && index < len(urls); index++ {
 		blob := ""
 		if index < len(blobs) {
 			blob = blobs[index]
 		}
-		item, err := a.imageDataItem(ctx, credential, imagineImageValue{URL: urls[index], Blob: blob}, format)
+		item, err := a.imageDataItemWithTransform(ctx, credential, imagineImageValue{URL: urls[index], Blob: blob}, format, transform)
 		if err != nil {
 			return nil, err
 		}
@@ -1472,12 +1572,20 @@ func (a *Adapter) imageResponse(ctx context.Context, credential account.Credenti
 }
 
 func (a *Adapter) imageDataItem(ctx context.Context, credential account.Credential, image imagineImageValue, format string) (map[string]any, error) {
+	return a.imageDataItemWithTransform(ctx, credential, image, format, imageOutputTransform{})
+}
+
+func (a *Adapter) imageDataItemWithTransform(ctx context.Context, credential account.Credential, image imagineImageValue, format string, transform imageOutputTransform) (map[string]any, error) {
 	if a.assets == nil {
 		return nil, provider.NewMediaPostProcessingError(provider.MediaPostProcessingStorage, fmt.Errorf("图片媒体存储未配置"))
 	}
 	raw, err := a.imageBytes(ctx, credential, image)
 	if err != nil {
 		return nil, provider.NewMediaPostProcessingError(provider.MediaPostProcessingDownload, err)
+	}
+	raw, _, _, err = transformWebImageOutput(raw, transform)
+	if err != nil {
+		return nil, provider.NewMediaPostProcessingError(provider.MediaPostProcessingTransform, err)
 	}
 	asset, err := a.saveImageWithRetry(ctx, raw)
 	if err != nil {
@@ -1521,7 +1629,7 @@ func (a *Adapter) imageBytes(ctx context.Context, credential account.Credential,
 	return a.downloadImage(ctx, credential, image.URL)
 }
 
-func (a *Adapter) streamImagineImages(ctx context.Context, writer *io.PipeWriter, connection *websocket.Conn, lease *egress.Lease, credential account.Credential, count, partialImages int, modelConfig imagineModelConfig) {
+func (a *Adapter) streamImagineImages(ctx context.Context, writer *io.PipeWriter, connection *websocket.Conn, lease *egress.Lease, credential account.Credential, count, partialImages int, modelConfig imagineModelConfig, transform imageOutputTransform) {
 	defer lease.Release()
 	defer connection.Close()
 	done := make(chan struct{})
@@ -1589,6 +1697,15 @@ func (a *Adapter) streamImagineImages(ctx context.Context, writer *io.PipeWriter
 			if err != nil {
 				_ = writer.CloseWithError(err)
 				return
+			}
+			raw, width, height, err := transformWebImageOutput(raw, transform)
+			if err != nil {
+				_ = writer.CloseWithError(provider.NewMediaPostProcessingError(provider.MediaPostProcessingTransform, err))
+				return
+			}
+			if width > 0 && height > 0 {
+				image.Width = width
+				image.Height = height
 			}
 			if err := a.saveStreamImage(ctx, raw); err != nil {
 				_ = writer.CloseWithError(err)
@@ -1778,35 +1895,18 @@ func imagineResetMessage() map[string]any {
 	return map[string]any{"type": "conversation.item.create", "timestamp": time.Now().UnixMilli(), "item": map[string]any{"type": "message", "content": []any{map[string]any{"type": "reset"}}}}
 }
 
-func imagineRequestMessage(id, prompt, ratio, resolution, size string, nsfw, pro bool, generations int) map[string]any {
+func imagineRequestMessage(id, prompt, ratio, resolution string, nsfw, pro bool, generations int) map[string]any {
 	properties := map[string]any{"section_count": 0, "is_kids_mode": false, "enable_nsfw": nsfw, "skip_upsampler": false, "enable_side_by_side": true, "is_initial": false, "aspect_ratio": ratio, "enable_pro": pro, "num_generations": generations}
-	if width, height, ok := webImagePixelSize(size); ok {
-		properties["imageWidth"] = width
-		properties["imageHeight"] = height
-	}
 	if value := webImageResolutionValue(resolution); value != "" {
 		properties["resolution"] = value
 	}
 	return map[string]any{"type": "conversation.item.create", "timestamp": time.Now().UnixMilli(), "item": map[string]any{"type": "message", "content": []any{map[string]any{"requestId": id, "text": prompt, "type": "input_text", "properties": properties}}}}
 }
 
-func webImagePixelSize(size string) (int, int, bool) {
-	switch strings.ToLower(strings.TrimSpace(size)) {
-	case "2048x2048":
-		return 2048, 2048, true
-	case "2048x3072":
-		return 2048, 3072, true
-	case "3072x2048":
-		return 3072, 2048, true
-	default:
-		return 0, 0, false
-	}
-}
-
 func webImageResolutionValue(resolution string) string {
 	switch strings.ToLower(strings.TrimSpace(resolution)) {
-	case "2k", "2mp":
-		return "2k"
+	case "1k", "2k":
+		return strings.ToLower(strings.TrimSpace(resolution))
 	default:
 		return ""
 	}

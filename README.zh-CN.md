@@ -267,11 +267,11 @@ Web 使用内置目录并按账号等级过滤；更高等级继承低等级模�
 | `grok-imagine-image-lite` | 图像 | Basic | Images Generations |
 | `grok-imagine-image` | 图像 | Basic | Images Generations（`enable_pro=false`） |
 | `grok-imagine-image-2.0` | 图像、图像编辑 | Basic | Chat Completions、Images Generations（`enable_pro=true`）、Images Edits |
-| `grok-imagine-image-2.0-2k` | 图像、图像编辑 | Basic | 同上三个接口；Web 侧 Imagine 2.0 兼容别名 |
+| `grok-imagine-image-2.0-2k` | 图像、图像编辑 | Basic | 同上三个接口；Web 最终成品由服务端放大到真实 2K 像素尺寸 |
 | `grok-imagine-image-edit` | 图像编辑 | Basic | Images Edits |
 | `grok-imagine-video` | 视频 | 720p 为 Basic；480p 为 Super | Videos |
 
-Web Imagine 生成会把 `aspect_ratio` 和 `n` 映射到浏览器协议。`size` 仍作为 OpenAI 兼容的宽高比别名；仅生成使用的 `resolution` 和 `quality` 在 Web 路由中会被忽略，因为上游产品由模型名选择，而不是由这些偏 Console 的控制字段选择。Web 图片编辑当前只支持 1K，因此 `-2k` 名称仍可调用，但不会强制 Web 返回 2K 结果。
+Web Imagine 生成只向上游发送协议支持的 `aspect_ratio` 和 `resolution`。`size` 仍作为 OpenAI 兼容入参，但只在本地换算为宽高比；`size`、`width/height`、`imageWidth/imageHeight` 等像素字段绝不会转发给上游。真实测试确认，当前 Web 上游即使收到 `resolution=2k` 仍只返回约 1K 像素。因此，当模型为 `grok-imagine-image-2.0-2k` 或请求显式指定 `resolution=2k` 时，服务端会在最终成品存储及 URL/Base64 返回前使用 Catmull-Rom 高质量放大，从而在 Chat Completions、Images Generations、Images Edits 三个入口输出真实 2K 像素尺寸；这是服务端后处理，不是上游原生 2K。目标尺寸包括：1:1 为 `2048x2048`、2:3 为 `2048x3072`、3:2 为 `3072x2048`；其他比例保持短边 2048，`auto` 使用上游成品的实际比例。
 
 ### Grok Console
 
@@ -298,7 +298,7 @@ Console 使用当前版本内置目录。对话为无状态转发；图片、视
 
 同一个 Console 图片模型的生成与编辑能力会聚合展示为一条逻辑模型，不需要创建 `-edit` 模型副本。
 
-`grok-imagine-image-2.0` 与 `grok-imagine-image-2.0-2k` 当前只启用 Web 路由，因为 Console 已暂时撤下 Imagine 2.0；Chat Completions、Images Generations、Images Edits 三个接口继续通过 Web 提供。项目仍保留禁用状态的 Console 路由、模型映射和适配代码，便于上游恢复后重新开放。Web 返回 429 时，网关会同步额度/冷却状态并尝试其他可用 Web 账号；账号池耗尽后不会回退 Console。`-2k` 在 Web 路径选择同一个 Imagine 2.0 产品，但不承诺严格的 2K 输出。
+`grok-imagine-image-2.0` 与 `grok-imagine-image-2.0-2k` 当前只启用 Web 路由，因为 Console 已暂时撤下 Imagine 2.0；Chat Completions、Images Generations、Images Edits 三个接口继续通过 Web 提供。项目仍保留禁用状态的 Console 路由、模型映射和适配代码，便于上游恢复后重新开放。Web 返回 429 时，网关会同步额度/冷却状态并尝试其他可用 Web 账号；账号池耗尽后不会回退 Console。`-2k` 在 Web 路径选择同一个 Imagine 2.0 产品，并应用上文所述的服务端最终成品 2K 放大。
 
 公开模型名通常不带 Provider。内部路由使用 `Build/`、`Web/` 或 `Console/` 前缀；带前缀名称可显式限定来源。
 

@@ -266,11 +266,11 @@ Web uses a built-in catalog filtered by account tier; higher tiers inherit lower
 | `grok-imagine-image-lite` | Image | Basic | Images Generations |
 | `grok-imagine-image` | Image | Basic | Images Generations (`enable_pro=false`) |
 | `grok-imagine-image-2.0` | Image, Image Edit | Basic | Chat Completions, Images Generations (`enable_pro=true`), Images Edits |
-| `grok-imagine-image-2.0-2k` | Image, Image Edit | Basic | Same three surfaces; Web compatibility alias for Imagine 2.0 |
+| `grok-imagine-image-2.0-2k` | Image, Image Edit | Basic | Same three surfaces; Web final output is server-upscaled to real 2K pixel dimensions |
 | `grok-imagine-image-edit` | Image Edit | Basic | Images Edits |
 | `grok-imagine-video` | Video | Basic for 720p; Super for 480p | Videos |
 
-Web Imagine generation maps `aspect_ratio` and `n` to the browser protocol. `size` remains an OpenAI-compatible aspect-ratio alias, while generation-only `resolution` and `quality` are ignored on Web routes because the upstream product is selected by the model name rather than by those Console-oriented controls. Web image editing currently supports 1K only, so the `-2k` name remains callable but does not force a 2K Web result.
+Web Imagine generation forwards only the protocol-supported `aspect_ratio` and `resolution` controls. `size` remains an OpenAI-compatible input alias and is converted locally to an aspect ratio; pixel fields such as `size`, `width/height`, and `imageWidth/imageHeight` are never sent upstream. Live tests show that the current Web upstream still returns roughly 1K pixels even with `resolution=2k`. Therefore, `grok-imagine-image-2.0-2k` or an explicit `resolution=2k` triggers a Catmull-Rom server-side upscale of the final image before storage and URL/Base64 delivery. This produces real 2K pixel dimensions across Chat Completions, Images Generations, and Images Edits, but it is post-processing rather than native upstream 2K generation. Targets include `2048x2048` for 1:1, `2048x3072` for 2:3, and `3072x2048` for 3:2; other ratios keep a 2048-pixel short edge, while `auto` follows the returned image ratio.
 
 ### Grok Console
 
@@ -297,7 +297,7 @@ Console uses the catalog built into the current release. Conversation forwarding
 
 Generation and editing capabilities for the same Console image model are grouped into one logical model row; no separate `-edit` model copy is required.
 
-`grok-imagine-image-2.0` and `grok-imagine-image-2.0-2k` currently use Web routes only because Console has temporarily withdrawn Imagine 2.0. Chat Completions, Images Generations, and Images Edits remain available through Web. The disabled Console routes, model mappings, and adapter code remain in place for a future re-enable. On HTTP 429, the gateway reconciles quota/cooldown state and tries another available Web account; it does not fall back to Console after the Web pool is exhausted. The `-2k` alias selects the same Imagine 2.0 product on Web and does not promise a strict 2K result there.
+`grok-imagine-image-2.0` and `grok-imagine-image-2.0-2k` currently use Web routes only because Console has temporarily withdrawn Imagine 2.0. Chat Completions, Images Generations, and Images Edits remain available through Web. The disabled Console routes, model mappings, and adapter code remain in place for a future re-enable. On HTTP 429, the gateway reconciles quota/cooldown state and tries another available Web account; it does not fall back to Console after the Web pool is exhausted. The `-2k` alias selects the same Imagine 2.0 product and applies the server-side 2K final-output transform described above.
 
 Public names normally omit the Provider. Internally, routes use `Build/`, `Web/`, or `Console/`; qualified names can pin a request to one source.
 
