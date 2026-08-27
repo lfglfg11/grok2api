@@ -1298,7 +1298,7 @@ func TestImagineRequestPrefersExplicitPixelSize(t *testing.T) {
 	item := message["item"].(map[string]any)
 	content := item["content"].([]any)[0].(map[string]any)
 	properties := content["properties"].(map[string]any)
-	if properties["image_width"] != 2048 || properties["image_height"] != 2048 {
+	if properties["imageWidth"] != 2048 || properties["imageHeight"] != 2048 {
 		t.Fatalf("properties=%#v", properties)
 	}
 	if _, exists := properties["resolution"]; exists {

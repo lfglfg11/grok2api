@@ -1781,8 +1781,8 @@ func imagineResetMessage() map[string]any {
 func imagineRequestMessage(id, prompt, ratio, resolution, size string, nsfw, pro bool, generations int) map[string]any {
 	properties := map[string]any{"section_count": 0, "is_kids_mode": false, "enable_nsfw": nsfw, "skip_upsampler": false, "enable_side_by_side": true, "is_initial": false, "aspect_ratio": ratio, "enable_pro": pro, "num_generations": generations}
 	if width, height, ok := webImagePixelSize(size); ok {
-		properties["image_width"] = width
-		properties["image_height"] = height
+		properties["imageWidth"] = width
+		properties["imageHeight"] = height
 	} else if value := webImageResolutionValue(resolution); value != "" {
 		properties["resolution"] = value
 	}
