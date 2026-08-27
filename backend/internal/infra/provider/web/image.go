@@ -706,7 +706,7 @@ func (a *Adapter) generateWSImageAttempt(ctx context.Context, request provider.I
 		a.egress.Feedback(context.WithoutCancel(ctx), lease.NodeID, 0, err)
 		return nil, err
 	}
-	if err := connection.WriteJSON(imagineRequestMessage(newWebID("img"), request.Prompt, ratio, request.Resolution, cfg.AllowNSFW, modelConfig.Pro, modelConfig.ExpectedCount)); err != nil {
+	if err := connection.WriteJSON(imagineRequestMessage(newWebID("img"), request.Prompt, ratio, request.Resolution, request.Size, cfg.AllowNSFW, modelConfig.Pro, modelConfig.ExpectedCount)); err != nil {
 		a.egress.Feedback(context.WithoutCancel(ctx), lease.NodeID, 0, err)
 		return nil, err
 	}
@@ -1778,12 +1778,28 @@ func imagineResetMessage() map[string]any {
 	return map[string]any{"type": "conversation.item.create", "timestamp": time.Now().UnixMilli(), "item": map[string]any{"type": "message", "content": []any{map[string]any{"type": "reset"}}}}
 }
 
-func imagineRequestMessage(id, prompt, ratio, resolution string, nsfw, pro bool, generations int) map[string]any {
+func imagineRequestMessage(id, prompt, ratio, resolution, size string, nsfw, pro bool, generations int) map[string]any {
 	properties := map[string]any{"section_count": 0, "is_kids_mode": false, "enable_nsfw": nsfw, "skip_upsampler": false, "enable_side_by_side": true, "is_initial": false, "aspect_ratio": ratio, "enable_pro": pro, "num_generations": generations}
-	if value := webImageResolutionValue(resolution); value != "" {
+	if width, height, ok := webImagePixelSize(size); ok {
+		properties["width"] = width
+		properties["height"] = height
+	} else if value := webImageResolutionValue(resolution); value != "" {
 		properties["resolution"] = value
 	}
 	return map[string]any{"type": "conversation.item.create", "timestamp": time.Now().UnixMilli(), "item": map[string]any{"type": "message", "content": []any{map[string]any{"requestId": id, "text": prompt, "type": "input_text", "properties": properties}}}}
+}
+
+func webImagePixelSize(size string) (int, int, bool) {
+	switch strings.ToLower(strings.TrimSpace(size)) {
+	case "2048x2048":
+		return 2048, 2048, true
+	case "2048x3072":
+		return 2048, 3072, true
+	case "3072x2048":
+		return 3072, 2048, true
+	default:
+		return 0, 0, false
+	}
 }
 
 func webImageResolutionValue(resolution string) string {
