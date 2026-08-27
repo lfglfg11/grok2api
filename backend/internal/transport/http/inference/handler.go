@@ -924,7 +924,7 @@ func (h *Handler) generateImage(c *gin.Context) {
 		return
 	}
 	if len(imageURLs) > 0 {
-		result, err := h.gateway.EditImage(c.Request.Context(), gateway.ImageEditInput{RequestID: requestID, ClientKey: clientKey, PublicModel: request.Model, Prompt: request.Prompt, ImageURLs: imageURLs, Count: count, AspectRatio: aspectRatio, Resolution: request.Resolution, Quality: quality, ResponseFormat: request.ResponseFormat, Streaming: request.Stream, PartialImages: partialImages, Method: c.Request.Method, Path: c.Request.URL.Path, Headers: c.Request.Header.Clone()})
+		result, err := h.gateway.EditImage(c.Request.Context(), gateway.ImageEditInput{RequestID: requestID, ClientKey: clientKey, PublicModel: request.Model, Prompt: request.Prompt, ImageURLs: imageURLs, Count: count, Size: request.Size, AspectRatio: aspectRatio, Resolution: request.Resolution, Quality: quality, ResponseFormat: request.ResponseFormat, Streaming: request.Stream, PartialImages: partialImages, Method: c.Request.Method, Path: c.Request.URL.Path, Headers: c.Request.Header.Clone()})
 		if err != nil {
 			writeGatewayError(c, err)
 			return
@@ -932,7 +932,7 @@ func (h *Handler) generateImage(c *gin.Context) {
 		h.writeResult(c, result, request.Stream, streamProtocolImage)
 		return
 	}
-	result, err := h.gateway.GenerateImage(c.Request.Context(), gateway.ImageGenerationInput{RequestID: requestID, ClientKey: clientKey, PublicModel: request.Model, Prompt: request.Prompt, Count: count, AspectRatio: aspectRatio, Resolution: request.Resolution, Quality: quality, ResponseFormat: request.ResponseFormat, Streaming: request.Stream, PartialImages: partialImages, Method: c.Request.Method, Path: c.Request.URL.Path, Headers: c.Request.Header.Clone()})
+	result, err := h.gateway.GenerateImage(c.Request.Context(), gateway.ImageGenerationInput{RequestID: requestID, ClientKey: clientKey, PublicModel: request.Model, Prompt: request.Prompt, Count: count, Size: request.Size, AspectRatio: aspectRatio, Resolution: request.Resolution, Quality: quality, ResponseFormat: request.ResponseFormat, Streaming: request.Stream, PartialImages: partialImages, Method: c.Request.Method, Path: c.Request.URL.Path, Headers: c.Request.Header.Clone()})
 	if err != nil {
 		writeGatewayError(c, err)
 		return

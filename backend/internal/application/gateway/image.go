@@ -105,10 +105,7 @@ func (s *Service) EditImage(ctx context.Context, input ImageEditInput) (*Result,
 }
 
 func imageResolutionForProvider(providerValue accountdomain.Provider, publicModel, resolution string) string {
-	if providerValue == accountdomain.ProviderConsole {
-		return modeldomain.ApplyForcedImageResolution(publicModel, resolution)
-	}
-	return resolution
+	return modeldomain.ApplyForcedImageResolution(publicModel, resolution)
 }
 
 // editImageWithMaterializationFallback forwards remote URLs first and only

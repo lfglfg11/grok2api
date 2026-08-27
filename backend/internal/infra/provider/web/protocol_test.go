@@ -1271,7 +1271,7 @@ func TestPreflightClassifiesAntiBotRejection(t *testing.T) {
 
 func TestImagineRequestContainsOnlyProtocolProperties(t *testing.T) {
 	for _, pro := range []bool{false, true} {
-		message := imagineRequestMessage("request", "prompt", "16:9", false, pro, 2)
+		message := imagineRequestMessage("request", "prompt", "16:9", "", false, pro, 2)
 		item := message["item"].(map[string]any)
 		content := item["content"].([]any)[0].(map[string]any)
 		properties := content["properties"].(map[string]any)
@@ -1280,6 +1280,16 @@ func TestImagineRequestContainsOnlyProtocolProperties(t *testing.T) {
 		}
 		encoded := string(MarshalJSONBytes(message))
 		assertForbiddenFieldsAbsent(t, encoded)
+	}
+}
+
+func TestImagineRequestMaps2KToTwoMegapixels(t *testing.T) {
+	message := imagineRequestMessage("request", "prompt", "1:1", "2k", false, true, 1)
+	item := message["item"].(map[string]any)
+	content := item["content"].([]any)[0].(map[string]any)
+	properties := content["properties"].(map[string]any)
+	if properties["resolution_name"] != "2mp" {
+		t.Fatalf("properties=%#v", properties)
 	}
 }
 
@@ -1321,7 +1331,7 @@ func TestImageStreamingRejectsMultipleOutputs(t *testing.T) {
 }
 
 func TestImageAspectRatioFollowsXAIContractAndSizeAlias(t *testing.T) {
-	for input, expected := range map[string]string{"auto": "auto", "19.5:9": "19.5:9", "9:20": "9:20", "1536x1024": "3:2", "1024x1536": "2:3"} {
+	for input, expected := range map[string]string{"auto": "auto", "19.5:9": "19.5:9", "9:20": "9:20", "1536x1024": "3:2", "1024x1536": "2:3", "2048x2048": "1:1", "2048x3072": "2:3", "3072x2048": "3:2"} {
 		got, err := resolveImageAspectRatio(input, "")
 		if err != nil || got != expected {
 			t.Fatalf("aspect ratio %q = %q, err=%v", input, got, err)
