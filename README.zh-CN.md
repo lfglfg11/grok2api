@@ -265,9 +265,13 @@ Web 使用内置目录并按账号等级过滤；更高等级继承低等级模�
 | `grok-chat-expert` | 对话 | Super | Chat Completions、Responses、Messages |
 | `grok-chat-heavy` | 对话 | Heavy | Chat Completions、Responses、Messages |
 | `grok-imagine-image-lite` | 图像 | Basic | Images Generations |
-| `grok-imagine-image-quality-lite` | 图像 | Basic | Images Generations |
-| `grok-imagine-image-edit` | 图像编辑 | Super | Images Edits |
-| `grok-imagine-video` | 视频 | Super | Videos |
+| `grok-imagine-image` | 图像 | Basic | Images Generations（`enable_pro=false`） |
+| `grok-imagine-image-2.0` | 图像、图像编辑 | Basic | Chat Completions、Images Generations（`enable_pro=true`）、Images Edits |
+| `grok-imagine-image-2.0-2k` | 图像、图像编辑 | Basic | 同上三个接口；Web 侧 Imagine 2.0 兼容别名 |
+| `grok-imagine-image-edit` | 图像编辑 | Basic | Images Edits |
+| `grok-imagine-video` | 视频 | 720p 为 Basic；480p 为 Super | Videos |
+
+Web Imagine 生成会把 `aspect_ratio` 和 `n` 映射到浏览器协议。`size` 仍作为 OpenAI 兼容的宽高比别名；仅生成使用的 `resolution` 和 `quality` 在 Web 路由中会被忽略，因为上游产品由模型名选择，而不是由这些偏 Console 的控制字段选择。Web 图片编辑当前只支持 1K，因此 `-2k` 名称仍可调用，但不会强制 Web 返回 2K 结果。
 
 ### Grok Console
 
@@ -283,16 +287,18 @@ Console 使用当前版本内置目录。对话为无状态转发；图片、视
 | `grok-build-0.1` | 对话 | Chat Completions、Responses、Messages |
 | `grok-imagine-image` | 图像、图像编辑 | Chat Completions、Images Generations、Images Edits |
 | `grok-imagine-image-quality` | 图像、图像编辑 | Chat Completions、Images Generations、Images Edits |
-| `grok-imagine-image-2.0` | 图像、图像编辑 | Chat Completions、Images Generations、Images Edits |
+| `grok-imagine-image-2.0` | 图像、图像编辑 | 已禁用；保留映射以便未来重新启用 Console |
 | `grok-imagine-image-2k` | 图像、图像编辑 | 同上三个接口；固定使用 2K 分辨率 |
 | `grok-imagine-image-quality-2k` | 图像、图像编辑 | 同上三个接口；固定使用 2K 分辨率 |
-| `grok-imagine-image-2.0-2k` | 图像、图像编辑 | 同上三个接口；固定使用 2K 分辨率 |
+| `grok-imagine-image-2.0-2k` | 图像、图像编辑 | 已禁用；保留固定 2K 的 Console 映射以便未来恢复 |
 | `grok-imagine-video` | 视频 | Videos |
 | `grok-imagine-video-1.5` | 视频 | 视频生成，包括 Free Console 账号 |
 | `grok-voice-latest`、`grok-voice-think-fast-2.0`、`grok-voice-think-fast-1.0` | 语音 | TTS 和 Realtime WebSocket 代理 |
 | `grok-stt` | 语音 | STT 和 OpenAI 兼容的音频转录 |
 
 同一个 Console 图片模型的生成与编辑能力会聚合展示为一条逻辑模型，不需要创建 `-edit` 模型副本。
+
+`grok-imagine-image-2.0` 与 `grok-imagine-image-2.0-2k` 当前只启用 Web 路由，因为 Console 已暂时撤下 Imagine 2.0；Chat Completions、Images Generations、Images Edits 三个接口继续通过 Web 提供。项目仍保留禁用状态的 Console 路由、模型映射和适配代码，便于上游恢复后重新开放。Web 返回 429 时，网关会同步额度/冷却状态并尝试其他可用 Web 账号；账号池耗尽后不会回退 Console。`-2k` 在 Web 路径选择同一个 Imagine 2.0 产品，但不承诺严格的 2K 输出。
 
 公开模型名通常不带 Provider。内部路由使用 `Build/`、`Web/` 或 `Console/` 前缀；带前缀名称可显式限定来源。
 

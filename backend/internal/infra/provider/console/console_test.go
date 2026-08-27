@@ -85,8 +85,12 @@ func TestCatalogContainsAllConsoleModelsAndAliases(t *testing.T) {
 		t.Fatalf("routes = %d, want %d", len(routes), len(expected))
 	}
 	for _, route := range routes {
-		if route.Provider != account.ProviderConsole || !route.Enabled {
+		if route.Provider != account.ProviderConsole {
 			t.Fatalf("invalid route: %#v", route)
+		}
+		isImagine20 := route.PublicID == "Console/grok-imagine-image-2.0" || route.PublicID == "Console/grok-imagine-image-2.0-2k"
+		if route.Enabled == isImagine20 {
+			t.Fatalf("unexpected route enabled state: %#v", route)
 		}
 		if expected[routeKey{publicID: route.PublicID, capability: route.Capability}] != route.UpstreamModel {
 			t.Fatalf("route %q = %q", route.PublicID, route.UpstreamModel)

@@ -63,7 +63,6 @@ type imageExecution func(context.Context, accountdomain.Provider, accountdomain.
 
 // GenerateImage 选择支持图片生成的路由和账号，并返回可统一审计的上游响应。
 func (s *Service) GenerateImage(ctx context.Context, input ImageGenerationInput) (*Result, error) {
-	input.Resolution = modeldomain.ApplyForcedImageResolution(input.PublicModel, input.Resolution)
 	return s.executeImage(ctx, input.RequestID, input.ClientKey, input.PublicModel, audit.OperationImage, modeldomain.CapabilityImage, func(providerValue accountdomain.Provider) bool {
 		_, ok := s.providers.ImageGeneration(providerValue)
 		return ok
@@ -72,9 +71,10 @@ func (s *Service) GenerateImage(ctx context.Context, input ImageGenerationInput)
 		if !ok {
 			return nil, ErrNoAvailableAccount
 		}
+		resolution := imageResolutionForProvider(providerValue, input.PublicModel, input.Resolution)
 		return adapter.GenerateImage(executionCtx, provider.ImageGenerationRequest{
 			Credential: credential, Model: upstream, Prompt: input.Prompt, Count: input.Count,
-			Size: input.Size, AspectRatio: input.AspectRatio, Resolution: input.Resolution, Quality: input.Quality,
+			Size: input.Size, AspectRatio: input.AspectRatio, Resolution: resolution, Quality: input.Quality,
 			ResponseFormat: input.ResponseFormat, Streaming: input.Streaming, PartialImages: input.PartialImages,
 		})
 	}, input.Streaming, input.Resolution, input.Quality, input.Count, 0, input.Method, input.Path, input.Headers)
@@ -82,7 +82,6 @@ func (s *Service) GenerateImage(ctx context.Context, input ImageGenerationInput)
 
 // EditImage 选择支持图片编辑的路由和账号，并返回可统一审计的上游响应。
 func (s *Service) EditImage(ctx context.Context, input ImageEditInput) (*Result, error) {
-	input.Resolution = modeldomain.ApplyForcedImageResolution(input.PublicModel, input.Resolution)
 	return s.executeImage(ctx, input.RequestID, input.ClientKey, input.PublicModel, audit.OperationImageEdit, modeldomain.CapabilityImageEdit, func(providerValue accountdomain.Provider) bool {
 		_, ok := s.providers.ImageEdit(providerValue)
 		return ok
@@ -91,10 +90,11 @@ func (s *Service) EditImage(ctx context.Context, input ImageEditInput) (*Result,
 		if !ok {
 			return nil, ErrNoAvailableAccount
 		}
+		resolution := imageResolutionForProvider(providerValue, input.PublicModel, input.Resolution)
 		request := provider.ImageEditRequest{
 			Credential: credential, Model: upstream, Prompt: input.Prompt,
 			ImageURLs: input.ImageURLs, Count: input.Count, Size: input.Size, AspectRatio: input.AspectRatio,
-			Resolution: input.Resolution, Quality: input.Quality, ResponseFormat: input.ResponseFormat,
+			Resolution: resolution, Quality: input.Quality, ResponseFormat: input.ResponseFormat,
 			Streaming: input.Streaming, PartialImages: input.PartialImages,
 		}
 		if providerValue != accountdomain.ProviderConsole {
@@ -102,6 +102,13 @@ func (s *Service) EditImage(ctx context.Context, input ImageEditInput) (*Result,
 		}
 		return s.editImageWithMaterializationFallback(executionCtx, adapter, request, input.RequestID)
 	}, input.Streaming, input.Resolution, input.Quality, input.Count, len(input.ImageURLs), input.Method, input.Path, input.Headers)
+}
+
+func imageResolutionForProvider(providerValue accountdomain.Provider, publicModel, resolution string) string {
+	if providerValue == accountdomain.ProviderConsole {
+		return modeldomain.ApplyForcedImageResolution(publicModel, resolution)
+	}
+	return resolution
 }
 
 // editImageWithMaterializationFallback forwards remote URLs first and only

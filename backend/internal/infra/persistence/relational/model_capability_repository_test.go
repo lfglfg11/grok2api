@@ -648,8 +648,8 @@ func TestReplaceProviderRoutesRestoresThreeConsoleImageModels(t *testing.T) {
 		{PublicID: "grok-imagine-image", Provider: account.ProviderConsole, UpstreamModel: "grok-imagine-image", Capability: model.CapabilityImageEdit, Enabled: true},
 		{PublicID: "grok-imagine-image-quality", Provider: account.ProviderConsole, UpstreamModel: "grok-imagine-image-quality", Capability: model.CapabilityImage, Enabled: true},
 		{PublicID: "grok-imagine-image-quality", Provider: account.ProviderConsole, UpstreamModel: "grok-imagine-image-quality", Capability: model.CapabilityImageEdit, Enabled: true},
-		{PublicID: "grok-imagine-image-2.0", Provider: account.ProviderConsole, UpstreamModel: "grok-imagine-image-2.0", Capability: model.CapabilityImage, Enabled: true},
-		{PublicID: "grok-imagine-image-2.0", Provider: account.ProviderConsole, UpstreamModel: "grok-imagine-image-2.0", Capability: model.CapabilityImageEdit, Enabled: true},
+		{PublicID: "grok-imagine-image-2.0", Provider: account.ProviderConsole, UpstreamModel: "grok-imagine-image-2.0", Capability: model.CapabilityImage, Enabled: false},
+		{PublicID: "grok-imagine-image-2.0", Provider: account.ProviderConsole, UpstreamModel: "grok-imagine-image-2.0", Capability: model.CapabilityImageEdit, Enabled: false},
 	}
 	for range 2 {
 		if err := repo.ReplaceProviderRoutes(ctx, account.ProviderConsole, desiredCatalog); err != nil {
@@ -669,6 +669,9 @@ func TestReplaceProviderRoutesRestoresThreeConsoleImageModels(t *testing.T) {
 			seen[route.PublicID] = make(map[string]bool)
 		}
 		seen[route.PublicID][route.Capability] = true
+		if (route.PublicID == "Console/grok-imagine-image-2.0") == route.Enabled {
+			t.Fatalf("unexpected Console image route enabled state: %#v", route)
+		}
 		if route.UpstreamModel != "grok-imagine-image-2.0" && beforeIDs[route.UpstreamModel+"|"+route.Capability] != route.ID {
 			t.Fatalf("existing Console route ID changed: before=%#v after=%#v", before, after)
 		}

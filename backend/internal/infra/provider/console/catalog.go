@@ -34,14 +34,18 @@ var mediaCatalog = []struct {
 	PublicID      string
 	UpstreamModel string
 	Capabilities  []modeldomain.Capability
+	Disabled      bool
 }{
 	// Keep the three official Console image products distinct. The legacy and
 	// quality routes intentionally precede 2.0 so catalog reconciliation can
 	// restore stable route IDs created before 2.0 was introduced.
 	{PublicID: "grok-imagine-image", UpstreamModel: "grok-imagine-image", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
 	{PublicID: "grok-imagine-image-quality", UpstreamModel: "grok-imagine-image-quality", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
-	{PublicID: "grok-imagine-image-2.0", UpstreamModel: "grok-imagine-image-2.0", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
-	{PublicID: "grok-imagine-image-2.0-2k", UpstreamModel: "grok-imagine-image-2.0", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
+	// Console has withdrawn Imagine 2.0 for now. Keep the route definitions and
+	// adapter support so they can be re-enabled without reconstructing the
+	// compatibility surface when the upstream product returns.
+	{PublicID: "grok-imagine-image-2.0", UpstreamModel: "grok-imagine-image-2.0", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}, Disabled: true},
+	{PublicID: "grok-imagine-image-2.0-2k", UpstreamModel: "grok-imagine-image-2.0", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}, Disabled: true},
 	{PublicID: "grok-imagine-image-quality-2k", UpstreamModel: "grok-imagine-image-quality", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
 	{PublicID: "grok-imagine-image-2k", UpstreamModel: "grok-imagine-image", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
 	{PublicID: "gpt-image-1", UpstreamModel: "grok-imagine-image-quality", Capabilities: []modeldomain.Capability{modeldomain.CapabilityImage, modeldomain.CapabilityImageEdit}},
@@ -110,7 +114,7 @@ func Routes() []modeldomain.Route {
 		for _, capability := range spec.Capabilities {
 			values = append(values, modeldomain.Route{
 				PublicID: publicID, Provider: account.ProviderConsole, UpstreamModel: spec.UpstreamModel,
-				Capability: capability, Enabled: true,
+				Capability: capability, Enabled: !spec.Disabled,
 			})
 		}
 	}

@@ -2649,6 +2649,18 @@ func TestImageStreamPropagatesWithoutTouchingChatQuota(t *testing.T) {
 	}
 }
 
+func TestImageResolutionForProviderOnlyForcesConsoleAliases(t *testing.T) {
+	if got := imageResolutionForProvider(account.ProviderConsole, "grok-imagine-image-2.0-2k", ""); got != "2k" {
+		t.Fatalf("Console fixed-resolution alias = %q, want 2k", got)
+	}
+	if got := imageResolutionForProvider(account.ProviderWeb, "grok-imagine-image-2.0-2k", ""); got != "" {
+		t.Fatalf("Web compatibility alias resolution = %q, want empty", got)
+	}
+	if got := imageResolutionForProvider(account.ProviderWeb, "grok-imagine-image-2.0", "1k"); got != "1k" {
+		t.Fatalf("Web explicit resolution = %q, want 1k", got)
+	}
+}
+
 func TestWebImageUnauthorizedMarksInvalidAndSwitchesAccount(t *testing.T) {
 	ctx := context.Background()
 	database, err := relational.OpenSQLite(ctx, filepath.Join(t.TempDir(), "web-image-401.db"))

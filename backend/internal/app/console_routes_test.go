@@ -14,6 +14,7 @@ func TestConsoleRoutesUseStableProviderNamespace(t *testing.T) {
 		t.Fatal("console catalog is empty")
 	}
 	seen := make(map[string]map[string]bool, len(routes))
+	enabled := make(map[string]bool, len(routes))
 	for _, route := range routes {
 		if route.Provider != account.ProviderConsole || !strings.HasPrefix(route.PublicID, "Console/") {
 			t.Fatalf("non-canonical console route = %#v", route)
@@ -25,6 +26,7 @@ func TestConsoleRoutesUseStableProviderNamespace(t *testing.T) {
 			t.Fatalf("duplicate console public id/capability %q/%q", route.PublicID, route.Capability)
 		}
 		seen[route.PublicID][string(route.Capability)] = true
+		enabled[route.PublicID] = route.Enabled
 	}
 	if seen["Console/grok-4.3-console"] != nil {
 		t.Fatal("legacy conflict suffix leaked into canonical Console model IDs")
@@ -35,6 +37,11 @@ func TestConsoleRoutesUseStableProviderNamespace(t *testing.T) {
 	for _, modelID := range []string{"Console/grok-imagine-image", "Console/grok-imagine-image-quality", "Console/grok-imagine-image-2.0", "Console/grok-imagine-image-2.0-2k"} {
 		if !seen[modelID]["image"] || !seen[modelID]["image_edit"] {
 			t.Fatalf("Console image route capabilities for %s = %#v", modelID, seen[modelID])
+		}
+	}
+	for _, modelID := range []string{"Console/grok-imagine-image-2.0", "Console/grok-imagine-image-2.0-2k"} {
+		if enabled[modelID] {
+			t.Fatalf("withdrawn Console route %s must remain cataloged but disabled", modelID)
 		}
 	}
 	for _, modelID := range []string{"Console/grok-voice-latest", "Console/grok-voice-think-fast-2.0", "Console/grok-voice-think-fast-1.0"} {

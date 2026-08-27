@@ -37,8 +37,8 @@ import (
 
 func TestCatalogMatchesSupportedSurface(t *testing.T) {
 	values := Catalog()
-	requiredModels := []string{"grok-chat-fast", "grok-chat-auto", "grok-chat-expert", "grok-chat-heavy", "grok-imagine-image-lite", "grok-imagine-image", "grok-imagine-image-2.0", "grok-imagine-image-edit", "grok-imagine-video"}
-	if len(values) != len(requiredModels) {
+	requiredModels := []string{"grok-chat-fast", "grok-chat-auto", "grok-chat-expert", "grok-chat-heavy", "grok-imagine-image-lite", "grok-imagine-image", "grok-imagine-image-2.0", "grok-imagine-image-2.0-2k", "grok-imagine-image-edit", "grok-imagine-video"}
+	if len(values) != 12 {
 		t.Fatalf("catalog size = %d", len(values))
 	}
 	publicIDs := make(map[string]struct{}, len(values))
@@ -60,6 +60,9 @@ func TestCatalogMatchesSupportedSurface(t *testing.T) {
 		"grok-imagine-image-lite|image",
 		"grok-imagine-image|image",
 		"grok-imagine-image-2.0|image",
+		"grok-imagine-image-2.0|image_edit",
+		"grok-imagine-image-2.0-2k|image",
+		"grok-imagine-image-2.0-2k|image_edit",
 		"grok-imagine-image-edit|image_edit",
 	} {
 		if _, exists := routeKeys[required]; !exists {

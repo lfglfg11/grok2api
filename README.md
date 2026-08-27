@@ -265,11 +265,12 @@ Web uses a built-in catalog filtered by account tier; higher tiers inherit lower
 | `grok-chat-heavy` | Conversation | Heavy | Chat Completions, Responses, Messages |
 | `grok-imagine-image-lite` | Image | Basic | Images Generations |
 | `grok-imagine-image` | Image | Basic | Images Generations (`enable_pro=false`) |
-| `grok-imagine-image-2.0` | Image | Basic | Images Generations (`enable_pro=true`) |
+| `grok-imagine-image-2.0` | Image, Image Edit | Basic | Chat Completions, Images Generations (`enable_pro=true`), Images Edits |
+| `grok-imagine-image-2.0-2k` | Image, Image Edit | Basic | Same three surfaces; Web compatibility alias for Imagine 2.0 |
 | `grok-imagine-image-edit` | Image Edit | Basic | Images Edits |
 | `grok-imagine-video` | Video | Basic for 720p; Super for 480p | Videos |
 
-Web Imagine generation maps `aspect_ratio` and `n` to the browser protocol. `size` remains an OpenAI-compatible aspect-ratio alias, while generation-only `resolution` and `quality` are ignored on Web routes because the upstream product is selected by the model name rather than by those Console-oriented controls.
+Web Imagine generation maps `aspect_ratio` and `n` to the browser protocol. `size` remains an OpenAI-compatible aspect-ratio alias, while generation-only `resolution` and `quality` are ignored on Web routes because the upstream product is selected by the model name rather than by those Console-oriented controls. Web image editing currently supports 1K only, so the `-2k` name remains callable but does not force a 2K Web result.
 
 ### Grok Console
 
@@ -285,16 +286,18 @@ Console uses the catalog built into the current release. Conversation forwarding
 | `grok-build-0.1` | Conversation | Chat Completions, Responses, Messages |
 | `grok-imagine-image` | Image, Image Edit | Chat Completions, Images Generations, Images Edits |
 | `grok-imagine-image-quality` | Image, Image Edit | Chat Completions, Images Generations, Images Edits |
-| `grok-imagine-image-2.0` | Image, Image Edit | Chat Completions, Images Generations, Images Edits |
+| `grok-imagine-image-2.0` | Image, Image Edit | Disabled; mappings retained for a future Console re-enable |
 | `grok-imagine-image-2k` | Image, Image Edit | Same three surfaces; always uses 2K resolution |
 | `grok-imagine-image-quality-2k` | Image, Image Edit | Same three surfaces; always uses 2K resolution |
-| `grok-imagine-image-2.0-2k` | Image, Image Edit | Same three surfaces; always uses 2K resolution |
+| `grok-imagine-image-2.0-2k` | Image, Image Edit | Disabled; fixed-2K Console mapping retained for a future re-enable |
 | `grok-imagine-video` | Video | Videos |
 | `grok-imagine-video-1.5` | Video | Video generation, including Free Console accounts |
 | `grok-voice-latest`, `grok-voice-think-fast-2.0`, `grok-voice-think-fast-1.0` | Voice | TTS and Realtime WebSocket proxy |
 | `grok-stt` | Voice | STT and OpenAI-compatible audio transcriptions |
 
 Generation and editing capabilities for the same Console image model are grouped into one logical model row; no separate `-edit` model copy is required.
+
+`grok-imagine-image-2.0` and `grok-imagine-image-2.0-2k` currently use Web routes only because Console has temporarily withdrawn Imagine 2.0. Chat Completions, Images Generations, and Images Edits remain available through Web. The disabled Console routes, model mappings, and adapter code remain in place for a future re-enable. On HTTP 429, the gateway reconciles quota/cooldown state and tries another available Web account; it does not fall back to Console after the Web pool is exhausted. The `-2k` alias selects the same Imagine 2.0 product on Web and does not promise a strict 2K result there.
 
 Public names normally omit the Provider. Internally, routes use `Build/`, `Web/`, or `Console/`; qualified names can pin a request to one source.
 

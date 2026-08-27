@@ -128,11 +128,11 @@ GET  /v1/videos/{request_id}/content
 
 ### 3.5 OpenAI Images 兼容与固定 2K 别名
 
-| 对外模型 | 实际 Console 上游 | 特殊行为 |
+| 对外模型 | 保留的 Console 上游映射 | 特殊行为 |
 | --- | --- | --- |
 | `grok-imagine-image-2k` | `grok-imagine-image` | 强制 `resolution=2k` |
 | `grok-imagine-image-quality-2k` | `grok-imagine-image-quality` | 强制 `resolution=2k` |
-| `grok-imagine-image-2.0-2k` | `grok-imagine-image-2.0` | 强制 `resolution=2k` |
+| `grok-imagine-image-2.0-2k` | `grok-imagine-image-2.0` | Console 路径启用时强制 `resolution=2k`；当前 Web 路径仅作为兼容别名 |
 | `gpt-image-1`、`gpt-image-1.5` | `grok-imagine-image-quality` | OpenAI 模型名兼容 |
 | `dall-e-2`、`dall-e-3` | `grok-imagine-image` | OpenAI 模型名兼容 |
 
@@ -144,10 +144,13 @@ Images API 的最终兼容行为：
 - `size` 支持 `auto`、直接宽高比和任意正整数 `WIDTHxHEIGHT`，像素尺寸映射到最接近的 Grok 比例。
 - 图片比例额外支持 `2:1`、`1:2`、`19.5:9`、`9:19.5`、`20:9`、`9:20`。
 - `quality`、`background`、`output_compression`、`mask`、`user` 等 OpenAI 专用字段允许传入但不参与当前 Grok 请求。
-- 固定 2K 行为在 Gateway 图片链路和 Console Chat Completions 媒体适配层应用，生成、编辑和聊天接口都生效，且不改变实际上游模型名。
+- 固定 2K 行为只在实际选中 Console Provider 时由 Gateway 图片链路和 Console Chat Completions 媒体适配层应用，且不改变实际上游模型名；不能把 Console 风格的 `resolution=2k` 强塞给 Web。
+- `grok-imagine-image-2.0` 与衍生模型 `grok-imagine-image-2.0-2k` 当前只启用 Web 路由，Chat Completions、Images Generations、Images Edits 都由 Web 承接；`-2k` 在 Web 侧映射到相同的 Imagine 2.0 产品，但 Web 生成忽略 `resolution`，Web 编辑当前只支持 1K，因此不承诺严格 2K 输出。
+- Console 已暂时撤下 Imagine 2.0。项目保留 Console 的模型定义、固定 2K 映射和适配代码，但将两条 Console 路由标记为禁用；后续上游恢复时只需重新启用，不需要重做兼容层。
+- Web 图片上游返回 429 时会解析 `Retry-After`、同步额度状态、标记当前账号冷却，并在路由尝试预算内更换其他可用 Web 账号；账号池耗尽后不回退到已禁用的 Console 路径。
 - URL 输入被上游拒绝下载时，使用第 3.4 节的安全物化回退。
 
-主要冲突热点：`domain/model/media_alias.go`、`gateway/image.go`、`console/catalog.go`、`inference/handler.go`、Swagger 注解及生成文件。
+主要冲突热点：`domain/model/media_alias.go`、`gateway/image.go`、`web/catalog.go`、`console/catalog.go`、`inference/handler.go`、Swagger 注解及生成文件。
 
 ### 3.6 multi-agent 模型默认启用三类服务端工具
 
