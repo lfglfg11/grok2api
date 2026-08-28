@@ -281,6 +281,8 @@ Web 图片编辑使用当前 `mediaGenInput.imageToImage` 协议：上传得到�
 
 图片编辑的 Statsig 签名绑定真实浏览器 Referer 页面：创建请求使用 `/imagine/post/{post_id}`，结果查询使用同一页面及其 `conversation` 查询参数。收到结构化 `403 code=7` 后，只失效并刷新该精确页面路径的签名，不再复用固定 `/imagine` 签名。
 
+Web 图片编辑上传前会在同一个 Web 租约上从 `/api/auth/session` 刷新当前 `user_id`，并将其用于 `x-userid` 及后续上传、生成流程；只有 Session 刷新不可用时才回退数据库中的旧身份，避免图片虽上传成功却被上游编辑器判定为非根用户资产。
+
 图片编辑的上传与生成请求还会携带同一组运行时身份 Cookie：解析得到的 `x-userid` 与稳定的账号级 `grok_device_id`。账号导入或更新时若提供网页抓包中的真实 `grok_device_id`，上传和生成两阶段会原样复用该持久设备身份；旧账号未保存该值时，才继续使用由 `x-userid` 稳定派生的 UUID。托管 Clearance 模式只把账号设备 Cookie 合并到服务器刷新出的 Cloudflare Cookie 中，`cf_clearance` 仍以 FlareSolverr/on-demand 刷新结果为准。
 
 Web 图生图完整保留抓包中的三个浏览器阶段：上传使用 `/imagine` 页面，创建编辑会话使用 `/imagine/post/<UUID>` Referer，随后再按网页协议读取 `/rest/app-chat/conversations/<conversation-id>/responses?conversationKind=CONVERSATION_KIND_IMAGINE`，并携带匹配的 post/conversation Referer。最终结果只允许来自最后一条 Imagine Assistant 响应的 `generatedImageUrls`，输入附件、预览图以及其他偶然出现的 `/generated/` 字符串都不会被选中。诊断日志只额外记录上游返回的模型标签和参考图数量汇总，便于确认实际 Imagine 代际，不记录资产 ID 或图片内容。

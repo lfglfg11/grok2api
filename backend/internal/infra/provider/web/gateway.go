@@ -169,6 +169,23 @@ func (a *Adapter) resolveGatewayUserID(ctx context.Context, baseURL string, cred
 	return normalizeGatewayUserID(identity.UserID)
 }
 
+// resolveImageEditUserID refreshes the authenticated Session identity before
+// an upload/edit flow. Imagine binds uploaded assets to the current SSO user;
+// a persisted user_id can outlive a rotated token and make the asset appear
+// non-root-owned even when the upload itself succeeds.
+func (a *Adapter) resolveImageEditUserID(ctx context.Context, baseURL string, credential account.Credential, token string, lease *infraegress.Lease) (string, error) {
+	identity, err := sessionidentity.FetchWithLease(ctx, baseURL, token, lease, a.egress)
+	if err == nil {
+		if userID, normalizeErr := normalizeGatewayUserID(identity.UserID); normalizeErr == nil {
+			if stored, storedErr := normalizeGatewayUserID(credential.UserID); storedErr == nil && stored != userID {
+				a.log().Warn("web_image_edit_identity_refreshed", "stored_identity_changed", true)
+			}
+			return userID, nil
+		}
+	}
+	return a.resolveGatewayUserID(ctx, baseURL, credential, token, lease)
+}
+
 func normalizeGatewayUserID(value string) (string, error) {
 	parsed, err := uuid.Parse(strings.TrimSpace(value))
 	if err != nil {

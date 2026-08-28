@@ -110,3 +110,36 @@ func TestResolveGatewayUserIDFromSSOSession(t *testing.T) {
 		t.Fatalf("userID = %q", userID)
 	}
 }
+
+func TestResolveImageEditUserIDRefreshesPersistedIdentity(t *testing.T) {
+	t.Parallel()
+	const sessionUserID = "650a3a2e-b6fd-4b33-bb13-2af2b43607f1"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/auth/session" {
+			http.NotFound(writer, request)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"status":"authenticated","session":{"userId":"` + sessionUserID + `"}}`))
+	}))
+	t.Cleanup(server.Close)
+	cipher, err := security.NewCipher(base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := cipher.Encrypt("test-sso")
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := NewAdapter(Config{BaseURL: server.URL}, infraegress.NewManager(egressRepositoryStub{}, cipher), cipher, nil, nil)
+	credential := account.Credential{ID: 1, Provider: account.ProviderWeb, AuthType: account.AuthTypeSSO, UserID: "650a3a2e-b6fd-4b33-bb13-2af2b43607f2", EncryptedAccessToken: token}
+	lease, err := adapter.egress.AcquireCredential(context.Background(), domainegress.ScopeWeb, credential)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Release()
+	userID, err := adapter.resolveImageEditUserID(context.Background(), server.URL, credential, "test-sso", lease)
+	if err != nil || userID != sessionUserID {
+		t.Fatalf("userID=%q err=%v", userID, err)
+	}
+}

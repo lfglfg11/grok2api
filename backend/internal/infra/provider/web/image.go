@@ -945,7 +945,7 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 			lease.Release()
 		}
 	}()
-	userID, err := a.resolveGatewayUserID(ctx, cfg.BaseURL, request.Credential, token, lease)
+	userID, err := a.resolveImageEditUserID(ctx, cfg.BaseURL, request.Credential, token, lease)
 	if err != nil {
 		return nil, fmt.Errorf("resolve Grok Web image edit user identity: %w", err)
 	}
