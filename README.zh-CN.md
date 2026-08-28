@@ -273,7 +273,7 @@ Web 使用内置目录并按账号等级过滤；更高等级继承低等级模�
 
 Web Imagine 生成只向上游发送协议支持的 `aspect_ratio` 和 `resolution`。`size` 仍作为 OpenAI 兼容入参，但只在本地换算为宽高比；`size`、`width/height`、`imageWidth/imageHeight` 等像素字段绝不会转发给上游。真实测试确认，当前 Web 上游即使收到 `resolution=2k` 仍只返回约 1K 像素。因此，当模型为 `grok-imagine-image-2.0-2k` 或请求显式指定 `resolution=2k` 时，服务端会在最终成品存储及 URL/Base64 返回前使用 Catmull-Rom 高质量放大，从而在 Chat Completions、Images Generations、Images Edits 三个入口输出真实 2K 像素尺寸；这是服务端后处理，不是上游原生 2K。新的本地目标尺寸保持上游成品实际比例，并将总像素控制在约 `2048x2048`：1:1 为 `2048x2048`、2:3 为 `1672x2508`、3:2 为 `2508x1672`、16:9 为 `2731x1536`。该调整只影响本地最终图片缩放，不改变任何上游请求参数。
 
-当同一个公开图片模型同时具有生成和编辑路由时，Chat Completions/Responses 会先明确选择图片生成路由：Imagine 2.0 的纯文本请求继续生图；若当前用户消息带图片附件，Web 适配层会转入既有图片编辑流程。Images Edits 仍按图片编辑能力独立选路。固定 `-2k` 别名会从 Chat 请求中的原始公开模型名恢复，因此生成和编辑响应都不会丢失 2K 后处理。
+当同一个公开图片模型同时具有生成和编辑路由时，Chat Completions/Responses 会按输入内容选路：纯文本请求使用图片生成，当前用户消息带图片附件则使用图片编辑路由。对 `grok-imagine-image-2.0`，网关保留公开模型名，但 Web 图生图请求严格映射为抓包一致的 `modelName=imagine-image-edit`、`imageEditModel=imagine` 和 `mediaGenInput.imageToImage`，避免误落到第一代普通生图路由。Images Edits 仍按图片编辑能力独立选路。固定 `-2k` 别名会从 Chat 请求中的原始公开模型名恢复，因此生成和编辑响应都不会丢失 2K 后处理。
 
 Web 图片编辑使用当前 `mediaGenInput.imageToImage` 协议：上传得到的 `fileMetadataId` 通过 `inputAssets` 提交，并保留当前 Grok 网页实际发送的 `kind=CONVERSATION_KIND_IMAGINE` 与 `responseMetadata.modelConfigOverride.modelMap.imageEditModel=imagine`。`image_edit_is_root_user_uploaded` 属于上游响应资产的辅助元数据，不得作为请求字段发送。
 

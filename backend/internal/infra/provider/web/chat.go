@@ -215,7 +215,7 @@ func (a *Adapter) ForwardResponse(ctx context.Context, request provider.Response
 	spec, modelKnown := Resolve(request.Model)
 	var normalized normalizedChatInput
 	var err error
-	if modelKnown && spec.Capability == modeldomain.CapabilityImage {
+	if modelKnown && (spec.Capability == modeldomain.CapabilityImage || spec.Capability == modeldomain.CapabilityImageEdit) {
 		normalized, err = normalizeLatestImageInput(input, request.Operation)
 	} else {
 		normalized, err = normalizeOpenAIInput(input, request.Operation)
@@ -238,7 +238,18 @@ func (a *Adapter) ForwardResponse(ctx context.Context, request provider.Response
 		return a.forwardImageChatCompletion(ctx, request, input, normalized, spec)
 	}
 	if modelKnown && spec.Capability == modeldomain.CapabilityImageEdit {
-		return invalidImageRequest("图片编辑模型请使用 /v1/images/edits，并在当前请求中显式提供输入图片")
+		if len(tools.ResponseTools) > 0 {
+			return invalidImageRequest("图片编辑模型不支持 tools")
+		}
+		if len(normalized.Attachments) == 0 {
+			return invalidImageRequest("图片编辑模型需要当前用户消息中的输入图片")
+		}
+		// Preserve the public model name (for example grok-imagine-image-2.0)
+		// through the edit adapter so derived-model post-processing remains active.
+		if strings.TrimSpace(input.Model) != "" {
+			request.Model = input.Model
+		}
+		return a.forwardImageEditChatCompletion(ctx, request, input, normalized, 1, "url")
 	}
 	if !modelKnown || spec.Capability != modeldomain.CapabilityChat {
 		return jsonProviderResponse(http.StatusBadRequest, map[string]any{"error": map[string]any{"message": "模型不支持文本对话", "type": "invalid_request_error"}}), nil

@@ -1158,6 +1158,35 @@ func TestSelectConversationRoutePrefersImageGenerationOverSameNameEdit(t *testin
 	}
 }
 
+func TestSelectConversationRoutePrefersImageEditWhenRequestHasImage(t *testing.T) {
+	registry := provider.NewRegistry(webStoredResponseAdapter{})
+	service := &Service{
+		clientKeys: clientkeyapp.NewService(nil, nil, nil, 60, 4, nil),
+		providers:  registry,
+	}
+	routes := []modeldomain.Route{
+		{ID: 10, PublicID: "Web/grok-imagine-image-2.0", Provider: account.ProviderWeb, UpstreamModel: "grok-imagine-image-2.0", Capability: modeldomain.CapabilityImage},
+		{ID: 11, PublicID: "Web/grok-imagine-image-2.0", Provider: account.ProviderWeb, UpstreamModel: "imagine-image-edit", Capability: modeldomain.CapabilityImageEdit},
+	}
+
+	eligible, _, err := service.eligibleConversationRoutes(routes, clientkey.Key{}, audit.OperationChat, "/responses", false, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(eligible) != 1 || eligible[0].Capability != modeldomain.CapabilityImageEdit || eligible[0].UpstreamModel != "imagine-image-edit" {
+		t.Fatalf("image-bearing conversation candidates = %#v", eligible)
+	}
+}
+
+func TestConversationRequestHasImageInput(t *testing.T) {
+	if !conversationRequestHasImageInput([]byte(`{"messages":[{"content":[{"type":"text","text":"加个帽子"},{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,AA=="}}]}]}`)) {
+		t.Fatal("image_url content was not detected")
+	}
+	if conversationRequestHasImageInput([]byte(`{"messages":[{"role":"user","content":"搜索新闻"}]}`)) {
+		t.Fatal("text-only content was incorrectly detected as image input")
+	}
+}
+
 func TestOrderConversationRouteTargetsIsSessionStableAndProviderScoped(t *testing.T) {
 	routes := []modeldomain.Route{
 		{ID: 10, Provider: account.ProviderBuild},

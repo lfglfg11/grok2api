@@ -592,7 +592,7 @@ func (s *Service) resolvePublicModelRoutes(ctx context.Context, publicModel stri
 
 // eligibleConversationRoutes filters route targets without choosing one. Keeping
 // this separate from ordering lets one public name form a schedulable target pool.
-func (s *Service) eligibleConversationRoutes(routes []modeldomain.Route, key clientkey.Key, operation audit.Operation, path string, requireStoredResponse bool, ownership *inferencedomain.ResponseOwnership) ([]modeldomain.Route, modeldomain.Route, error) {
+func (s *Service) eligibleConversationRoutes(routes []modeldomain.Route, key clientkey.Key, operation audit.Operation, path string, requireStoredResponse bool, ownership *inferencedomain.ResponseOwnership, preferImageEdit ...bool) ([]modeldomain.Route, modeldomain.Route, error) {
 	if len(routes) == 0 || s.providers == nil {
 		return nil, modeldomain.Route{}, ErrModelNotFound
 	}
@@ -601,6 +601,7 @@ func (s *Service) eligibleConversationRoutes(routes []modeldomain.Route, key cli
 	// otherwise target ordering can route a plain text request to image_edit and
 	// reject it for missing input images.
 	hasImageGenerationRoute := false
+	imageInput := len(preferImageEdit) > 0 && preferImageEdit[0]
 	for _, route := range routes {
 		if route.Capability == modeldomain.CapabilityImage {
 			hasImageGenerationRoute = true
@@ -616,7 +617,10 @@ func (s *Service) eligibleConversationRoutes(routes []modeldomain.Route, key cli
 	conversationSupported := false
 	storedResponseUnsupported := false
 	for _, route := range routes {
-		if hasImageGenerationRoute && route.Capability == modeldomain.CapabilityImageEdit {
+		if hasImageGenerationRoute && route.Capability == modeldomain.CapabilityImageEdit && !imageInput {
+			continue
+		}
+		if imageInput && route.Capability == modeldomain.CapabilityImage {
 			continue
 		}
 		if ownership != nil {
@@ -674,10 +678,42 @@ func (s *Service) eligibleConversationRoutes(routes []modeldomain.Route, key cli
 	return nil, fallback, ErrConversationUnsupported
 }
 
+// conversationRequestHasImageInput identifies OpenAI image content before a
+// route is selected. A public Imagine 2.0 name exposes both generation and
+// edit routes; image-bearing chat requests must select the edit route.
+func conversationRequestHasImageInput(body []byte) bool {
+	var value any
+	if json.Unmarshal(body, &value) != nil {
+		return false
+	}
+	var visit func(any) bool
+	visit = func(current any) bool {
+		switch item := current.(type) {
+		case map[string]any:
+			for key, nested := range item {
+				if key == "image_url" || key == "input_image" || key == "imageUrl" || key == "input_image_url" {
+					return true
+				}
+				if visit(nested) {
+					return true
+				}
+			}
+		case []any:
+			for _, nested := range item {
+				if visit(nested) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return visit(value)
+}
+
 // selectConversationRoute retains the legacy single-target helper for callers
 // that do not need target-pool ordering.
-func (s *Service) selectConversationRoute(routes []modeldomain.Route, key clientkey.Key, operation audit.Operation, path string, requireStoredResponse bool, ownership *inferencedomain.ResponseOwnership) (modeldomain.Route, error) {
-	eligible, fallback, err := s.eligibleConversationRoutes(routes, key, operation, path, requireStoredResponse, ownership)
+func (s *Service) selectConversationRoute(routes []modeldomain.Route, key clientkey.Key, operation audit.Operation, path string, requireStoredResponse bool, ownership *inferencedomain.ResponseOwnership, preferImageEdit ...bool) (modeldomain.Route, error) {
+	eligible, fallback, err := s.eligibleConversationRoutes(routes, key, operation, path, requireStoredResponse, ownership, preferImageEdit...)
 	if err != nil {
 		return fallback, err
 	}
@@ -879,7 +915,8 @@ func (s *Service) createResponseAt(ctx context.Context, input Input, path string
 	// Select an initial route only to preserve the existing stateful/stateless
 	// previous_response_id boundary. The actual target is chosen from the eligible
 	// pool below after ownership and account availability are known.
-	initialRoute, routeErr := s.selectConversationRoute(routes, input.ClientKey, operation, path, false, nil)
+	imageInput := conversationRequestHasImageInput(input.Body)
+	initialRoute, routeErr := s.selectConversationRoute(routes, input.ClientKey, operation, path, false, nil, imageInput)
 	var ownership *inferencedomain.ResponseOwnership
 	if input.PreviousResponseID != "" && routeErr == nil {
 		if s.providers.SupportsStoredResponses(initialRoute.Provider) {
@@ -896,7 +933,7 @@ func (s *Service) createResponseAt(ctx context.Context, input Input, path string
 			return nil, ErrResponseStateUnsupported
 		}
 	}
-	eligibleRoutes, fallbackRoute, routeErr := s.eligibleConversationRoutes(routes, input.ClientKey, operation, path, ownership != nil, ownership)
+	eligibleRoutes, fallbackRoute, routeErr := s.eligibleConversationRoutes(routes, input.ClientKey, operation, path, ownership != nil, ownership, imageInput)
 	route := fallbackRoute
 	orderedRoutes := eligibleRoutes
 	if routeErr == nil {
