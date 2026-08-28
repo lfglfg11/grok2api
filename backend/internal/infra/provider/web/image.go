@@ -1807,7 +1807,6 @@ func (a *Adapter) postJSON(ctx context.Context, cfg Config, lease *egress.Lease,
 
 func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *egress.Lease, token, endpoint string, payload any, timeout time.Duration, referer, userID string) (*http.Response, error) {
 	data, _ := json.Marshal(payload)
-	pagePath := statsigPagePathFromReferer(cfg.BaseURL, referer)
 	for attempt := 0; attempt < 2; attempt++ {
 		requestCtx, cancel := context.WithTimeout(ctx, timeout)
 		request, err := http.NewRequestWithContext(requestCtx, http.MethodPost, endpoint, bytes.NewReader(data))
@@ -1818,7 +1817,11 @@ func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *eg
 		request.Header = buildHeaders(token, lease, "application/json")
 		applyRuntimeIdentityCookies(request.Header, userID)
 		applyAppHeaders(request.Header, cfg.BaseURL, referer)
-		a.applySignedStatsigForPage(requestCtx, request, token, lease, pagePath)
+		// conversations/new validates x-statsig-id against the current site
+		// verification metadata. The client-generated Imagine post UUID belongs
+		// in Referer, but fetching verification metadata from that arbitrary page
+		// can return a stale build and causes application error code 7.
+		a.applySignedStatsig(requestCtx, request, token, lease)
 		response, err := lease.DoDeferredForbidden(request)
 		if err != nil {
 			cancel()
@@ -1840,7 +1843,7 @@ func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *eg
 			response.ContentLength = int64(len(body))
 			if isClearanceRefreshableMediaError(upstreamErr) {
 				lease.InvalidateClearance()
-				_ = a.invalidateSignedStatsigForPage(http.MethodPost, endpoint, pagePath)
+				_ = a.invalidateSignedStatsig(http.MethodPost, endpoint)
 				return response, nil
 			}
 			// Code 7 is the application-layer equivalent of reloading the Grok
@@ -1848,14 +1851,14 @@ func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *eg
 			// explicitly rejected POST once. It is not a Cloudflare challenge, so
 			// the current Clearance lease remains valid.
 			if isStatsigRefreshableMediaError(upstreamErr, body) {
-				if attempt == 0 && a.invalidateSignedStatsigForPage(http.MethodPost, endpoint, pagePath) {
+				if attempt == 0 && a.invalidateSignedStatsig(http.MethodPost, endpoint) {
 					continue
 				}
 				return response, nil
 			}
 			// Remaining structured JSON responses are application policy decisions.
 			// They must not invalidate Clearance, affect egress health, or be replayed.
-			if upstreamErr.bodyKind == "json" || attempt > 0 || !a.invalidateSignedStatsigForPage(http.MethodPost, endpoint, pagePath) {
+			if upstreamErr.bodyKind == "json" || attempt > 0 || !a.invalidateSignedStatsig(http.MethodPost, endpoint) {
 				return response, nil
 			}
 			continue

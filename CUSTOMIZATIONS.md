@@ -274,6 +274,7 @@ git merge upstream/main
 - 远程图片下载保留 SSRF、重定向、大小、MIME、凭据隔离保护。
 - Images Generations 带 `image/images` 时仍自动进入编辑流程。
 - Web 图片编辑上传继续发送 `IMAGINE_SELF_UPLOAD_FILE_SOURCE`，并使用响应中的 `fileMetadataId` 作为 `inputAssets`；诊断日志不得记录资产 ID、URL、图片内容、Cookie 或 token。
+- Web 图片编辑创建会话时仍使用 `/imagine/post/{uuid}` Referer，但 `POST /rest/app-chat/conversations/new` 的 `x-statsig-id` 必须由当前站点全局 verification meta 生成，不得从客户端随机生成、尚不存在的 post 页面提取 meta；后者可能命中旧构建并触发上游 `403 code=7 (This page is out of date)`。会话结果查询可继续使用实际 post/conversation 页面上下文。
 - Web 图片编辑上传阶段使用 `/imagine` Referer，创建会话使用网页同形态的 `/imagine/post/<UUID>` Referer，并在创建流结束后使用 conversation ID 读取 `conversations/<id>/responses`；最终图片必须严格取最后一条 Imagine Assistant 响应的 `generatedImageUrls`，不能递归遍历整个 JSON 后随机选择输入附件、预览图或其他 `/generated/` URL。
 - 三个 `-2k` 模型在三类兼容接口中仍强制 2K，四个 OpenAI 图片别名映射正确；Imagine 2.0 Web 最终成品仍执行服务端 2K 放大，且上游请求不得重新出现像素/`size` 字段。
 - 同名图片生成/编辑路由并存时，Chat/Responses 仍选择 `CapabilityImage`；不得依赖目录顺序或会话目标随机排序，`/v1/images/edits` 也不能因此失效。
