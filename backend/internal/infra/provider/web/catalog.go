@@ -32,8 +32,7 @@ var catalog = []ModelSpec{
 	{PublicID: "grok-imagine-image-2.0-2k", UpstreamModel: "grok-imagine-image-2.0", ProtocolModel: "imagine", ImaginePro: true, Capability: modeldomain.CapabilityImage, Mode: "image_pro", MinimumTier: account.WebTierBasic},
 	{PublicID: "grok-imagine-image-edit", UpstreamModel: "imagine-image-edit", Capability: modeldomain.CapabilityImageEdit, Mode: "image_edit", MinimumTier: account.WebTierBasic},
 	// Imagine 2.0 public names share Web's dedicated image-edit protocol.
-	// The Web editor currently supports 1K only, so the -2k name is a
-	// compatibility alias here rather than a forced resolution control.
+	// The fixed-resolution alias is restored by the gateway before dispatch.
 	{PublicID: "grok-imagine-image-2.0", UpstreamModel: "imagine-image-edit", Capability: modeldomain.CapabilityImageEdit, Mode: "image_edit", MinimumTier: account.WebTierBasic},
 	{PublicID: "grok-imagine-image-2.0-2k", UpstreamModel: "imagine-image-edit", Capability: modeldomain.CapabilityImageEdit, Mode: "image_edit", MinimumTier: account.WebTierBasic},
 	{PublicID: "grok-imagine-video", UpstreamModel: "grok-imagine-video", ProtocolModel: "imagine-video-gen", Capability: modeldomain.CapabilityVideo, Mode: "video", MinimumTier: account.WebTierBasic},

@@ -193,6 +193,25 @@ func TestImageChatRejectsOnlyCurrentTurnAttachment(t *testing.T) {
 	}
 }
 
+func TestImagine20ImageChatRoutesCurrentTurnAttachmentToEdit(t *testing.T) {
+	content, _ := json.Marshal([]any{
+		map[string]any{"type": "text", "text": "make it blue"},
+		map[string]any{"type": "image_url", "image_url": map[string]any{"url": "https://example.com/input.png"}},
+	})
+	response, err := (&Adapter{}).ForwardResponse(context.Background(), provider.ResponseResourceRequest{
+		Method: http.MethodPost, Model: "grok-imagine-image-2.0", Operation: conversation.OperationChat,
+		Body: []byte(fmt.Sprintf(`{"model":"grok-imagine-image-2.0","messages":[{"role":"user","content":%s}],"image_config":{"n":2}}`, content)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, _ := io.ReadAll(response.Body)
+	if response.StatusCode != http.StatusBadRequest || !strings.Contains(string(body), "图生图的 image_config.n 当前仅支持 1") {
+		t.Fatalf("status=%d body=%s", response.StatusCode, body)
+	}
+}
+
 func TestImagineImageResponsesUsesImageCompatibilityValidation(t *testing.T) {
 	response, err := (&Adapter{}).ForwardResponse(context.Background(), provider.ResponseResourceRequest{
 		Method: http.MethodPost, Model: "grok-imagine-image-quality", Operation: conversation.OperationResponses,

@@ -38,10 +38,10 @@ func TestWebImage2KTargetDimensions(t *testing.T) {
 		wantHeight int
 	}{
 		{ratio: "1:1", source: image.Rect(0, 0, 960, 960), wantWidth: 2048, wantHeight: 2048},
-		{ratio: "2:3", source: image.Rect(0, 0, 640, 960), wantWidth: 2048, wantHeight: 3072},
-		{ratio: "3:2", source: image.Rect(0, 0, 960, 640), wantWidth: 3072, wantHeight: 2048},
-		{ratio: "16:9", source: image.Rect(0, 0, 960, 540), wantWidth: 3641, wantHeight: 2048},
-		{ratio: "auto", source: image.Rect(0, 0, 600, 900), wantWidth: 2048, wantHeight: 3072},
+		{ratio: "2:3", source: image.Rect(0, 0, 640, 960), wantWidth: 1672, wantHeight: 2508},
+		{ratio: "3:2", source: image.Rect(0, 0, 960, 640), wantWidth: 2508, wantHeight: 1672},
+		{ratio: "16:9", source: image.Rect(0, 0, 960, 540), wantWidth: 2731, wantHeight: 1536},
+		{ratio: "auto", source: image.Rect(0, 0, 600, 900), wantWidth: 1672, wantHeight: 2508},
 	}
 	for _, test := range tests {
 		t.Run(test.ratio, func(t *testing.T) {
@@ -103,7 +103,7 @@ func TestTransformWebImageOutputPreservesPNGFormat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if format != "png" || width != 2048 || height != 3072 || decoded.Bounds().Dx() != 2048 || decoded.Bounds().Dy() != 3072 {
+	if format != "png" || width != 1672 || height != 2508 || decoded.Bounds().Dx() != 1672 || decoded.Bounds().Dy() != 2508 {
 		t.Fatalf("format=%s reported=%dx%d decoded=%dx%d", format, width, height, decoded.Bounds().Dx(), decoded.Bounds().Dy())
 	}
 }

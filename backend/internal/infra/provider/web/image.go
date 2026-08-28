@@ -17,7 +17,6 @@ import (
 	"net/textproto"
 	"net/url"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -114,34 +113,19 @@ func (transform imageOutputTransform) targetDimensions(source image.Rectangle) (
 	if !transform.enabled {
 		return source.Dx(), source.Dy(), nil
 	}
-	ratio := strings.ToLower(strings.TrimSpace(transform.aspectRatio))
-	var widthRatio, heightRatio float64
-	if ratio == "" || ratio == "auto" {
-		if source.Dx() <= 0 || source.Dy() <= 0 {
-			return 0, 0, fmt.Errorf("图片尺寸无效")
-		}
-		widthRatio, heightRatio = float64(source.Dx()), float64(source.Dy())
-	} else {
-		parts := strings.Split(ratio, ":")
-		if len(parts) != 2 {
-			return 0, 0, fmt.Errorf("无法解析图片宽高比 %q", transform.aspectRatio)
-		}
-		var err error
-		if widthRatio, err = strconv.ParseFloat(parts[0], 64); err != nil {
-			return 0, 0, fmt.Errorf("无法解析图片宽高比 %q", transform.aspectRatio)
-		}
-		if heightRatio, err = strconv.ParseFloat(parts[1], 64); err != nil {
-			return 0, 0, fmt.Errorf("无法解析图片宽高比 %q", transform.aspectRatio)
-		}
+	if source.Dx() <= 0 || source.Dy() <= 0 {
+		return 0, 0, fmt.Errorf("图片尺寸无效")
 	}
-	value := widthRatio / heightRatio
+	value := float64(source.Dx()) / float64(source.Dy())
 	if value <= 0 || math.IsNaN(value) || math.IsInf(value, 0) {
 		return 0, 0, fmt.Errorf("图片宽高比无效")
 	}
-	if value >= 1 {
-		return int(math.Round(2048 * value)), 2048, nil
-	}
-	return 2048, int(math.Round(2048 / value)), nil
+	// Match the native 2K tier's approximately 2048x2048 pixel budget while
+	// preserving the dimensions returned by Web as the authoritative ratio.
+	// Using a fixed 2048-pixel short edge greatly over-allocates wide/tall
+	// images without adding any extra source detail.
+	const targetPixels = float64(2048 * 2048)
+	return int(math.Round(math.Sqrt(targetPixels * value))), int(math.Round(math.Sqrt(targetPixels / value))), nil
 }
 
 func transformWebImageOutput(raw []byte, transform imageOutputTransform) ([]byte, int, int, error) {
@@ -557,9 +541,6 @@ func (a *Adapter) generateLiteImageURL(ctx context.Context, credential account.C
 }
 
 func (a *Adapter) forwardImageChatCompletion(ctx context.Context, request provider.ResponseResourceRequest, input openAIRequest, normalized normalizedChatInput, spec ModelSpec) (*provider.Response, error) {
-	if len(normalized.Attachments) > 0 {
-		return invalidImageRequest("文生图模型只接受当前用户消息中的纯文本；图生图请使用 grok-imagine-image-edit 和 /v1/images/edits")
-	}
 	count := 1
 	format := "url"
 	if input.ImageConfig != nil {
@@ -575,6 +556,12 @@ func (a *Adapter) forwardImageChatCompletion(ctx context.Context, request provid
 	}
 	if format != "url" && format != "b64_json" {
 		return invalidImageRequest("image_config.response_format 必须是 url 或 b64_json")
+	}
+	if len(normalized.Attachments) > 0 {
+		if spec.PublicID != "grok-imagine-image-2.0" {
+			return invalidImageRequest("文生图模型只接受当前用户消息中的纯文本；图生图请使用 grok-imagine-image-edit 和 /v1/images/edits")
+		}
+		return a.forwardImageEditChatCompletion(ctx, request, input, normalized, count, format)
 	}
 	if spec.ProtocolModel != "imagine-lite" {
 		return a.forwardQualityImageChatCompletion(ctx, request, input, normalized, count, format)
@@ -627,17 +614,43 @@ func (a *Adapter) forwardQualityImageChatCompletion(ctx context.Context, request
 	if err != nil {
 		return nil, err
 	}
-	if generated.StatusCode < http.StatusOK || generated.StatusCode >= http.StatusMultipleChoices {
-		return generated, nil
+	return imageAPIChatResponse(request, input, normalized.Prompt, generated, "图片生成")
+}
+
+func (a *Adapter) forwardImageEditChatCompletion(ctx context.Context, request provider.ResponseResourceRequest, input openAIRequest, normalized normalizedChatInput, count int, format string) (*provider.Response, error) {
+	if count != 1 {
+		return invalidImageRequest("图生图的 image_config.n 当前仅支持 1")
 	}
-	defer generated.Body.Close()
+	imageURLs := make([]string, 0, len(normalized.Attachments))
+	for _, attachment := range normalized.Attachments {
+		if !attachment.Image {
+			return invalidImageRequest("图生图只接受图片附件")
+		}
+		imageURLs = append(imageURLs, attachment.Source)
+	}
+	aspectRatio, resolution := imageChatConfig(input)
+	edited, err := a.EditImage(ctx, provider.ImageEditRequest{
+		Credential: request.Credential, Model: request.Model, Prompt: normalized.Prompt,
+		ImageURLs: imageURLs, Count: 1, AspectRatio: aspectRatio, Resolution: resolution, ResponseFormat: format,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return imageAPIChatResponse(request, input, normalized.Prompt, edited, "图片编辑")
+}
+
+func imageAPIChatResponse(request provider.ResponseResourceRequest, input openAIRequest, prompt string, imageResponse *provider.Response, operation string) (*provider.Response, error) {
+	if imageResponse.StatusCode < http.StatusOK || imageResponse.StatusCode >= http.StatusMultipleChoices {
+		return imageResponse, nil
+	}
+	defer imageResponse.Body.Close()
 	var payload struct {
 		Data []map[string]any `json:"data"`
 	}
-	if err := json.NewDecoder(generated.Body).Decode(&payload); err != nil {
-		return nil, provider.NewMediaPostProcessingError(provider.MediaPostProcessingStorage, fmt.Errorf("图片生成兼容响应解析失败: %w", err))
+	if err := json.NewDecoder(imageResponse.Body).Decode(&payload); err != nil {
+		return nil, provider.NewMediaPostProcessingError(provider.MediaPostProcessingStorage, fmt.Errorf("%s兼容响应解析失败: %w", operation, err))
 	}
-	parsed := parsedChat{ResponseID: newWebID("resp"), InputTokens: estimateTokens(normalized.Prompt)}
+	parsed := parsedChat{ResponseID: newWebID("resp"), InputTokens: estimateTokens(prompt)}
 	for _, item := range payload.Data {
 		markdown := liteImageMarkdown(item)
 		if markdown == "" {
@@ -649,21 +662,21 @@ func (a *Adapter) forwardQualityImageChatCompletion(ctx context.Context, request
 		parsed.appendText(markdown)
 	}
 	if parsed.Text.Len() == 0 {
-		return nil, fmt.Errorf("图片生成兼容响应中没有图片")
+		return nil, fmt.Errorf("%s兼容响应中没有图片", operation)
 	}
 	if input.Stream || request.Streaming {
 		stream, err := buildImageCompatibilityStream(request.Operation, parsed.ResponseID, input.Model, &parsed)
 		if err != nil {
 			return nil, err
 		}
-		return &provider.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: streamHeaders(), Body: io.NopCloser(bytes.NewReader(stream)), QuotaUnits: generated.QuotaUnits}, nil
+		return &provider.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: streamHeaders(), Body: io.NopCloser(bytes.NewReader(stream)), QuotaUnits: imageResponse.QuotaUnits}, nil
 	}
 	result := buildOpenAIResult(request.Operation, parsed.ResponseID, input.Model, parsed, false)
 	data, err := json.Marshal(result)
 	if err != nil {
 		return nil, err
 	}
-	return &provider.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: jsonHeaders(), Body: io.NopCloser(bytes.NewReader(data)), QuotaUnits: generated.QuotaUnits}, nil
+	return &provider.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: jsonHeaders(), Body: io.NopCloser(bytes.NewReader(data)), QuotaUnits: imageResponse.QuotaUnits}, nil
 }
 
 func imageChatConfig(input openAIRequest) (string, string) {

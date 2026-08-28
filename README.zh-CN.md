@@ -271,9 +271,9 @@ Web 使用内置目录并按账号等级过滤；更高等级继承低等级模�
 | `grok-imagine-image-edit` | 图像编辑 | Basic | Images Edits |
 | `grok-imagine-video` | 视频 | 720p 为 Basic；480p 为 Super | Videos |
 
-Web Imagine 生成只向上游发送协议支持的 `aspect_ratio` 和 `resolution`。`size` 仍作为 OpenAI 兼容入参，但只在本地换算为宽高比；`size`、`width/height`、`imageWidth/imageHeight` 等像素字段绝不会转发给上游。真实测试确认，当前 Web 上游即使收到 `resolution=2k` 仍只返回约 1K 像素。因此，当模型为 `grok-imagine-image-2.0-2k` 或请求显式指定 `resolution=2k` 时，服务端会在最终成品存储及 URL/Base64 返回前使用 Catmull-Rom 高质量放大，从而在 Chat Completions、Images Generations、Images Edits 三个入口输出真实 2K 像素尺寸；这是服务端后处理，不是上游原生 2K。目标尺寸包括：1:1 为 `2048x2048`、2:3 为 `2048x3072`、3:2 为 `3072x2048`；其他比例保持短边 2048，`auto` 使用上游成品的实际比例。
+Web Imagine 生成只向上游发送协议支持的 `aspect_ratio` 和 `resolution`。`size` 仍作为 OpenAI 兼容入参，但只在本地换算为宽高比；`size`、`width/height`、`imageWidth/imageHeight` 等像素字段绝不会转发给上游。真实测试确认，当前 Web 上游即使收到 `resolution=2k` 仍只返回约 1K 像素。因此，当模型为 `grok-imagine-image-2.0-2k` 或请求显式指定 `resolution=2k` 时，服务端会在最终成品存储及 URL/Base64 返回前使用 Catmull-Rom 高质量放大，从而在 Chat Completions、Images Generations、Images Edits 三个入口输出真实 2K 像素尺寸；这是服务端后处理，不是上游原生 2K。新的本地目标尺寸保持上游成品实际比例，并将总像素控制在约 `2048x2048`：1:1 为 `2048x2048`、2:3 为 `1672x2508`、3:2 为 `2508x1672`、16:9 为 `2731x1536`。该调整只影响本地最终图片缩放，不改变任何上游请求参数。
 
-当同一个公开图片模型同时具有生成和编辑路由时，Chat Completions/Responses 会按能力明确选择图片生成路由；图片编辑仍只由 Images Edits 选取。该规则不依赖模型目录顺序，也不硬编码 Imagine 2.0 的具体版本。固定 `-2k` 别名会从 Chat 请求中的原始公开模型名恢复，因此不会在转换为上游模型名后丢失 2K 后处理。
+当同一个公开图片模型同时具有生成和编辑路由时，Chat Completions/Responses 会先明确选择图片生成路由：Imagine 2.0 的纯文本请求继续生图；若当前用户消息带图片附件，Web 适配层会转入既有图片编辑流程。Images Edits 仍按图片编辑能力独立选路。固定 `-2k` 别名会从 Chat 请求中的原始公开模型名恢复，因此生成和编辑响应都不会丢失 2K 后处理。
 
 ### Grok Console
 
