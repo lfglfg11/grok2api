@@ -949,6 +949,15 @@ func TestImageEditGenerateRefererMatchesCapturedPostPage(t *testing.T) {
 	}
 }
 
+func TestStatsigPagePathFromRefererPreservesImaginePostContext(t *testing.T) {
+	if got := statsigPagePathFromReferer("https://grok.com", "https://grok.com/imagine/post/post-1?conversation=conversation-1"); got != "/imagine/post/post-1?conversation=conversation-1" {
+		t.Fatalf("page path = %q", got)
+	}
+	if got := statsigPagePathFromReferer("https://grok.com", "https://example.com/imagine/post/post-1"); got != "/imagine" {
+		t.Fatalf("cross-origin page path = %q", got)
+	}
+}
+
 func TestImageEditAspectRatioSupportsOpenAISize(t *testing.T) {
 	for _, test := range []struct {
 		aspectRatio string
