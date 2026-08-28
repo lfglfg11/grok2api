@@ -1469,7 +1469,7 @@ func (a *Adapter) uploadFileV2Direct(ctx context.Context, cfg Config, lease *egr
 		return uploadedFile{}, err
 	}
 	request.Header = buildHeaders(token, lease, contentType)
-	applyRuntimeUserIDCookie(request.Header, userID)
+	applyRuntimeIdentityCookies(request.Header, userID)
 	request.Header.Del("x-xai-request-id")
 	applyAppHeaders(request.Header, cfg.BaseURL, referer)
 	response, err := lease.DoDeferredForbidden(request)
@@ -1618,7 +1618,7 @@ func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *eg
 			return nil, err
 		}
 		request.Header = buildHeaders(token, lease, "application/json")
-		applyRuntimeUserIDCookie(request.Header, userID)
+		applyRuntimeIdentityCookies(request.Header, userID)
 		applyAppHeaders(request.Header, cfg.BaseURL, referer)
 		a.applySignedStatsig(requestCtx, request, token, lease)
 		response, err := lease.DoDeferredForbidden(request)

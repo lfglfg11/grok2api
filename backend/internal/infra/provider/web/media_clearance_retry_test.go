@@ -480,6 +480,9 @@ func assertTestRuntimeUserIDCookie(t *testing.T, request *fhttp.Request, userID 
 	if !strings.Contains(request.Header.Get("Cookie"), want) {
 		t.Errorf("request %s did not use runtime identity %s", request.URL.Path, want)
 	}
+	if !strings.Contains(request.Header.Get("Cookie"), "grok_device_id=") {
+		t.Errorf("request %s did not use a runtime device identity", request.URL.Path)
+	}
 }
 
 func writeTestChallenge(writer fhttp.ResponseWriter) {

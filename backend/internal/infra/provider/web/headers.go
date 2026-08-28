@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	infraegress "github.com/chenyme/grok2api/backend/internal/infra/egress"
+	"github.com/google/uuid"
 )
 
 func buildHeaders(token string, lease *infraegress.Lease, contentType string) http.Header {
@@ -24,11 +25,11 @@ func buildHeaders(token string, lease *infraegress.Lease, contentType string) ht
 	return value
 }
 
-// applyRuntimeUserIDCookie adds the authenticated account identity resolved by
-// this process. Browser identity cookies supplied through account imports stay
-// blocked by SanitizeCloudflareCookies; only a trusted, normalized session uid
-// may be attached to an upstream request.
-func applyRuntimeUserIDCookie(value http.Header, userID string) {
+// applyRuntimeIdentityCookies adds the authenticated account identity resolved
+// by this process and a stable per-account device UUID. Browser identity cookies
+// supplied through account imports stay blocked by SanitizeCloudflareCookies;
+// both runtime values are derived from the trusted, normalized session uid.
+func applyRuntimeIdentityCookies(value http.Header, userID string) {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
 		return
@@ -37,7 +38,8 @@ func applyRuntimeUserIDCookie(value http.Header, userID string) {
 	if cookie != "" {
 		cookie += "; "
 	}
-	value.Set("Cookie", cookie+"x-userid="+userID)
+	deviceID := uuid.NewSHA1(uuid.NameSpaceURL, []byte("grok2api:web-device:"+userID)).String()
+	value.Set("Cookie", cookie+"grok_device_id="+deviceID+"; x-userid="+userID)
 }
 
 // applyAppHeaders 补齐真实浏览器同源 fetch 会携带的稳定请求头，不伪造 Sentry 或 Client Hints。
