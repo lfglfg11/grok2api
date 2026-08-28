@@ -9,7 +9,7 @@
 | 项目 | 提交 |
 | --- | --- |
 | 二开分支 | `video-image` |
-| 本文覆盖的最后一个业务二开提交 | `ad01c7c1` (`fix: support chat image editing and balanced 2k output`) |
+| 本文覆盖的最后一个业务二开提交 | 当前工作树：修复 Web 图片编辑根参考图标记 |
 | 最新上游合并提交 | `20473523` (`Merge branch 'main' into video-image`) |
 | 已合入的官方基线 | `62d2775c` (`Merge pull request #1009 from chenyme/gateway`) |
 | 记录时官方 `upstream/main` | `62d2775c` |
@@ -148,7 +148,7 @@ Images API 的最终兼容行为：
 - `quality`、`background`、`output_compression`、`mask`、`user` 等 OpenAI 专用字段允许传入但不参与当前 Grok 请求。
 - 固定 2K 别名由 Gateway 统一转换为 `resolution=2k`，且不改变实际上游模型名。Web Imagine 生成只向上游发送协议支持的 `aspect_ratio` 和 `resolution`；兼容入参 `size` 只在本地换算宽高比，绝不转发 `size`、`width/height` 或 `imageWidth/imageHeight` 等实验字段。
 - 当同一公开模型同时注册 `CapabilityImage` 和 `CapabilityImageEdit` 时，Chat Completions/Responses 的会话候选池会排除同名编辑路由并先选择图片生成能力；`/v1/images/edits` 仍按 `CapabilityImageEdit` 独立选路。对 Imagine 2.0，Web 适配层再按当前用户消息内容做最小分流：纯文本调用生成，带图片附件调用既有编辑流程；旧图片模型带附件仍提示改用 `/v1/images/edits`。
-- Web 图片编辑请求必须同时保留 `mediaGenInput.imageToImage.inputAssets`、`kind=CONVERSATION_KIND_IMAGINE` 与 `responseMetadata.modelConfigOverride.modelMap.imageEditModel=imagine`。只发送 `mediaGenInput` 时上游会返回 HTTP 200，却可能静默按普通文生图处理，导致输出与参考图无关；同步上游时不得再次删除这两个编辑模式标记。
+- Web 图片编辑请求使用当前 `mediaGenInput.imageToImage` 协议：`inputAssets` 必须提交上传响应中的 `fileMetadataId`，并同时设置 `image_edit_is_root_user_uploaded=true`，否则上游可能返回 HTTP 200 却静默忽略参考图。旧版 `kind=CONVERSATION_KIND_IMAGINE` 与 `responseMetadata.modelConfigOverride.modelMap.imageEditModel=imagine` 会被当前上游以 HTTP 403 拒绝，禁止再次补回。
 - Web Chat 生图从原始 JSON 的公开模型名恢复固定分辨率别名，因此 `grok-imagine-image-2.0-2k` 即使在网关内被转换为相同的上游模型名，也仍会强制 `resolution=2k` 并执行最终成品 2K 放大。
 - `grok-imagine-image-2.0` 与衍生模型 `grok-imagine-image-2.0-2k` 当前只启用 Web 路由，Chat Completions、Images Generations、Images Edits 都由 Web 承接。真实上游实验确认 Web 当前即使收到 `resolution=2k` 仍返回约 1K 像素，因此当模型为 `grok-imagine-image-2.0-2k` 或请求显式指定 `resolution=2k` 时，服务端会在下载最终成品后使用 Catmull-Rom 高质量缩放生成真实 2K 像素文件，再进行本地存储、URL 返回或 Base64 返回；这属于服务端后处理，不应描述为上游原生 2K。
 - 2K 输出只修改本地最终成品的目标尺寸算法，不改变发送给上游的 `aspect_ratio`、`resolution` 或其他参数。缩放以最终图片实际比例为准，总像素约为 `2048x2048`：`1:1` 为 `2048x2048`、`2:3` 为 `1672x2508`、`3:2` 为 `2508x1672`、`16:9` 为 `2731x1536`。流式 partial preview 保持上游预览尺寸，completed 成品及事件尺寸使用放大后的真实像素；按本次要求未加入“已达到目标尺寸则跳过”的重复放大检测。
@@ -339,7 +339,7 @@ RikkaHub 手工验证请求：
 | `65ceaabe` | Web Imagine 2K 最终成品高质量放大，并移除上游像素/`size` 实验字段 |
 | `394b996d` | 修复 Chat 图片模型误选编辑路由，并保留 `-2k` 固定分辨率契约 |
 | `ad01c7c1` | 修复 Imagine 2.0 Chat 图生图分流，并将 Web 2K 本地成品调整为约 4.2MP 等比尺寸 |
-| 本次修复 | 恢复 Web Imagine 图片编辑模式标记，防止参考图被静默忽略 |
+| 本次修复 | Web Imagine 图片编辑改用 `image_edit_is_root_user_uploaded=true` 标记根参考图，并移除会触发 403 的旧编辑模式字段 |
 
 ## 8. 维护原则
 

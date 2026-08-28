@@ -274,7 +274,7 @@ Web Imagine generation forwards only the protocol-supported `aspect_ratio` and `
 
 When one public image model exposes both generation and edit routes, Chat Completions and Responses explicitly select the image-generation route first. A text-only Imagine 2.0 request generates an image, while an Imagine 2.0 request whose current user message contains image attachments is dispatched by the Web adapter to the existing image-edit flow. Images Edits continues to select the edit capability independently. Fixed `-2k` aliases are recovered from the original public model name in Chat requests, so generation and edit responses retain the same 2K post-processing contract.
 
-Web image edits preserve the current Imagine edit-mode markers in addition to `mediaGenInput.imageToImage.inputAssets`: `kind=CONVERSATION_KIND_IMAGINE` and `responseMetadata.modelConfigOverride.modelMap.imageEditModel=imagine`. Removing those markers can make upstream return HTTP 200 while silently treating a reference-image request as ordinary text-to-image generation.
+Web image edits use the current `mediaGenInput.imageToImage` protocol. Each uploaded `fileMetadataId` is sent through `inputAssets`, and `image_edit_is_root_user_uploaded=true` marks the references as user-uploaded root images. Obsolete `kind` and `responseMetadata.modelConfigOverride.modelMap.imageEditModel` markers are intentionally omitted because the current upstream rejects that legacy shape with HTTP 403.
 
 ### Grok Console
 
