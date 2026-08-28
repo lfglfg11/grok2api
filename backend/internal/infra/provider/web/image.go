@@ -39,6 +39,7 @@ const (
 	mediaOutputAttempts           = 3
 	imageDownloadTimeout          = 60 * time.Second
 	imagineSelfUploadSource       = "IMAGINE_SELF_UPLOAD_FILE_SOURCE"
+	imagineStatsigPagePath        = "/imagine"
 	directFileUploadResponseLimit = 2 << 20
 )
 
@@ -1059,23 +1060,6 @@ func imageEditResponsesReferer(baseURL, postID, conversationID string) string {
 	return imageEditPostReferer(baseURL, postID) + "?conversation=" + url.QueryEscape(strings.TrimSpace(conversationID))
 }
 
-func statsigPagePathFromReferer(baseURL, referer string) string {
-	base, baseErr := url.Parse(strings.TrimSpace(baseURL))
-	page, pageErr := url.Parse(strings.TrimSpace(referer))
-	if baseErr != nil || pageErr != nil || base.Host == "" || page.Host == "" ||
-		!strings.EqualFold(base.Scheme, page.Scheme) || !strings.EqualFold(base.Host, page.Host) {
-		return "/imagine"
-	}
-	path := page.EscapedPath()
-	if path == "" {
-		path = "/imagine"
-	}
-	if page.RawQuery != "" {
-		path += "?" + page.RawQuery
-	}
-	return path
-}
-
 func resolveImageEditAspectRatio(aspectRatio, size string) (string, error) {
 	if strings.TrimSpace(aspectRatio) == "" && strings.TrimSpace(size) == "" {
 		return "", nil
@@ -1431,7 +1415,6 @@ func (a *Adapter) imageEditConversationResultURLs(
 	}
 	endpoint := strings.TrimRight(cfg.BaseURL, "/") + "/rest/app-chat/conversations/" + url.PathEscape(conversationID) + "/responses?conversationKind=CONVERSATION_KIND_IMAGINE"
 	referer := imageEditResponsesReferer(cfg.BaseURL, postID, conversationID)
-	pagePath := statsigPagePathFromReferer(cfg.BaseURL, referer)
 	for attempt := 0; attempt < mediaOutputAttempts; attempt++ {
 		requestCtx, cancel := context.WithTimeout(ctx, time.Duration(cfg.ImageTimeoutSeconds)*time.Second)
 		request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, endpoint, nil)
@@ -1443,7 +1426,9 @@ func (a *Adapter) imageEditConversationResultURLs(
 		request.Header.Del("Content-Type")
 		applyRuntimeIdentityCookies(request.Header, userID)
 		applyAppHeaders(request.Header, cfg.BaseURL, referer)
-		a.applySignedStatsigForPage(requestCtx, request, token, lease, pagePath)
+		// The post URL is a client-side Imagine route. Grok's SPA keeps signing
+		// requests with verification metadata from the loaded /imagine document.
+		a.applySignedStatsigForPage(requestCtx, request, token, lease, imagineStatsigPagePath)
 		response, err := lease.DoDeferredForbidden(request)
 		if err != nil {
 			cancel()
@@ -1456,7 +1441,7 @@ func (a *Adapter) imageEditConversationResultURLs(
 			return nil, fmt.Errorf("read Grok Web image edit responses: %w", readErr)
 		}
 		if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-			if response.StatusCode == http.StatusForbidden && attempt == 0 && a.invalidateSignedStatsigForPage(http.MethodGet, endpoint, pagePath) {
+			if response.StatusCode == http.StatusForbidden && attempt == 0 && a.invalidateSignedStatsigForPage(http.MethodGet, endpoint, imagineStatsigPagePath) {
 				continue
 			}
 			return nil, fmt.Errorf("Grok Web image edit responses returned HTTP %d", response.StatusCode)
@@ -1817,11 +1802,10 @@ func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *eg
 		request.Header = buildHeaders(token, lease, "application/json")
 		applyRuntimeIdentityCookies(request.Header, userID)
 		applyAppHeaders(request.Header, cfg.BaseURL, referer)
-		// conversations/new validates x-statsig-id against the current site
-		// verification metadata. The client-generated Imagine post UUID belongs
-		// in Referer, but fetching verification metadata from that arbitrary page
-		// can return a stale build and causes application error code 7.
-		a.applySignedStatsig(requestCtx, request, token, lease)
+		// The browser changes the address bar to /imagine/post/<uuid> without a
+		// document navigation. Keep that captured Referer, but sign with metadata
+		// from the /imagine document that actually initialized the SPA.
+		a.applySignedStatsigForPage(requestCtx, request, token, lease, imagineStatsigPagePath)
 		response, err := lease.DoDeferredForbidden(request)
 		if err != nil {
 			cancel()
@@ -1843,7 +1827,7 @@ func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *eg
 			response.ContentLength = int64(len(body))
 			if isClearanceRefreshableMediaError(upstreamErr) {
 				lease.InvalidateClearance()
-				_ = a.invalidateSignedStatsig(http.MethodPost, endpoint)
+				_ = a.invalidateSignedStatsigForPage(http.MethodPost, endpoint, imagineStatsigPagePath)
 				return response, nil
 			}
 			// Code 7 is the application-layer equivalent of reloading the Grok
@@ -1851,14 +1835,14 @@ func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *eg
 			// explicitly rejected POST once. It is not a Cloudflare challenge, so
 			// the current Clearance lease remains valid.
 			if isStatsigRefreshableMediaError(upstreamErr, body) {
-				if attempt == 0 && a.invalidateSignedStatsig(http.MethodPost, endpoint) {
+				if attempt == 0 && a.invalidateSignedStatsigForPage(http.MethodPost, endpoint, imagineStatsigPagePath) {
 					continue
 				}
 				return response, nil
 			}
 			// Remaining structured JSON responses are application policy decisions.
 			// They must not invalidate Clearance, affect egress health, or be replayed.
-			if upstreamErr.bodyKind == "json" || attempt > 0 || !a.invalidateSignedStatsig(http.MethodPost, endpoint) {
+			if upstreamErr.bodyKind == "json" || attempt > 0 || !a.invalidateSignedStatsigForPage(http.MethodPost, endpoint, imagineStatsigPagePath) {
 				return response, nil
 			}
 			continue

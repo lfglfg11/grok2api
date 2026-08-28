@@ -949,12 +949,9 @@ func TestImageEditGenerateRefererMatchesCapturedPostPage(t *testing.T) {
 	}
 }
 
-func TestStatsigPagePathFromRefererPreservesImaginePostContext(t *testing.T) {
-	if got := statsigPagePathFromReferer("https://grok.com", "https://grok.com/imagine/post/post-1?conversation=conversation-1"); got != "/imagine/post/post-1?conversation=conversation-1" {
-		t.Fatalf("page path = %q", got)
-	}
-	if got := statsigPagePathFromReferer("https://grok.com", "https://example.com/imagine/post/post-1"); got != "/imagine" {
-		t.Fatalf("cross-origin page path = %q", got)
+func TestImageEditStatsigUsesLoadedImagineDocument(t *testing.T) {
+	if imagineStatsigPagePath != "/imagine" {
+		t.Fatalf("Statsig page path = %q", imagineStatsigPagePath)
 	}
 }
 
@@ -1785,6 +1782,7 @@ func TestGenerateVideoRefreshesOnlyReloadStatsigForbidden(t *testing.T) {
 			requestCalls := 0
 			signerCalls := 0
 			signatures := make([]string, 0, 2)
+			pagePaths := make([]string, 0, 2)
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				switch request.URL.Path {
 				case "/sign":
@@ -1823,7 +1821,8 @@ func TestGenerateVideoRefreshesOnlyReloadStatsigForbidden(t *testing.T) {
 			adapter.statsig.fetchMeta = func(context.Context, string, string, *infraegress.Lease) (string, error) {
 				return "current-page-meta", nil
 			}
-			adapter.statsig.fetchMetaForPath = func(context.Context, string, string, *infraegress.Lease, string) (string, error) {
+			adapter.statsig.fetchMetaForPath = func(_ context.Context, _, _ string, _ *infraegress.Lease, pagePath string) (string, error) {
+				pagePaths = append(pagePaths, pagePath)
 				return "current-page-meta", nil
 			}
 			adapter.statsig.validateEndpoint = func(context.Context, string) error { return nil }
@@ -1847,6 +1846,14 @@ func TestGenerateVideoRefreshesOnlyReloadStatsigForbidden(t *testing.T) {
 			}
 			if test.wantRequestCalls == 2 && signatures[0] == signatures[1] {
 				t.Fatalf("rejected Statsig signature was reused: %#v", signatures)
+			}
+			if len(pagePaths) != test.wantRequestCalls {
+				t.Fatalf("Statsig page paths = %#v", pagePaths)
+			}
+			for _, pagePath := range pagePaths {
+				if pagePath != imagineStatsigPagePath {
+					t.Fatalf("Statsig page path = %q", pagePath)
+				}
 			}
 		})
 	}
