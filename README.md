@@ -280,6 +280,8 @@ Image-edit upload and generation requests also carry the same runtime identity c
 
 The two Web phases retain their captured browser contexts: upload uses the `/imagine` page, while the edit-generation request uses an `/imagine/post/<UUID>` Referer.
 
+Imagine media POST requests derive `x-statsig-id` from the `grok-site-verification` metadata on `/imagine`, rather than reusing metadata from the generic `/index` or home page. Page-specific signatures use a separate cache key from ordinary Web requests; an upstream code 7 “reload” response invalidates and retries only the matching Imagine signature.
+
 For troubleshooting upstream reference binding, the Web adapter parses the normalized upload `fileSource` and emits privacy-safe image-edit diagnostics: whether upstream marked the source as root-user-uploaded, and counts of resolved references, echoed input assets, and generated URLs. These logs never include asset IDs, URLs, image bytes, cookies, or tokens.
 
 ### Grok Console

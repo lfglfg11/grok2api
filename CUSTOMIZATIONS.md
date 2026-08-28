@@ -9,7 +9,7 @@
 | 项目 | 提交 |
 | --- | --- |
 | 二开分支 | `video-image` |
-| 本文覆盖的最后一个业务二开提交 | `9ec5a5b5` (`fix(web): bind image edits to runtime user identity`) |
+| 本文覆盖的最后一个业务二开提交 | `2cf6074f` (`fix(web): sign imagine media with page-specific metadata`) |
 | 最新上游合并提交 | `20473523` (`Merge branch 'main' into video-image`) |
 | 已合入的官方基线 | `62d2775c` (`Merge pull request #1009 from chenyme/gateway`) |
 | 记录时官方 `upstream/main` | `62d2775c` |
@@ -39,6 +39,7 @@ git log --reverse --oneline main..video-image
 | Chat 图生图兼容 | Imagine 2.0 当前用户消息带图片时由 Web 适配层转入既有编辑链路；纯文本仍走生成链路 | `web/image.go` |
 | Web 图生图协议诊断 | 解析上传响应的 `fileSource`，并只记录根参考图识别、引用数量和生成 URL 数量等脱敏信号 | `web/attachments.go`、`web/image.go`、`web/protocol_test.go` |
 | Web 图生图用户绑定 | 图片编辑上传与生成阶段使用同一组可信运行时 `x-userid` 与账号级 `grok_device_id`；不放宽持久化 Cookie 白名单，也不重放抓包身份 Cookie | `web/headers.go`、`web/image.go`、`web/security_test.go`、`web/media_clearance_retry_test.go` |
+| Imagine 页面专用签名 | 图片和视频媒体 POST 使用 `/imagine` 页面的 `grok-site-verification` 生成 Statsig；缓存与普通 Web 请求隔离，代码 7 重试只失效对应 Imagine 签名 | `web/statsig.go`、`web/image.go`、`web/statsig_test.go`、`web/protocol_test.go` |
 | multi-agent 默认工具 | 所有名称中含独立 `multi-agent` 段的 Console 模型默认补齐代码解释器、Web 搜索和 X 搜索 | `console/normalize.go` |
 | 搜索/工具进度透传 | Responses 的服务端工具事件转换为 Chat Completions 的 `reasoning_content` 流 | `conversation/chat_server_tools.go`、`conversation/stream.go` |
 
@@ -348,6 +349,7 @@ RikkaHub 手工验证请求：
 | `2d4508f4` | 按网页抓包将图片编辑生成请求的 Referer 对齐为 `/imagine/post/<UUID>`，上传 Referer 仍保持 `/imagine` |
 | `9ec5a5b5` | 图片编辑上传与生成阶段绑定由账号记录或 `/api/auth/session` 可信解析的同一个 `x-userid`；账号导入仍拒绝浏览器身份 Cookie |
 | `6cc048b4` | 根据三组网页抓包，为图片编辑上传与生成阶段补齐由可信 `x-userid` 稳定派生的同一个账号级 `grok_device_id`；不保存或重放抓包身份 Cookie |
+| `2cf6074f` | Imagine 图片/视频媒体 POST 改用 `/imagine` 页面 verification meta 生成 Statsig，并与默认 Web 签名缓存和失效范围隔离 |
 
 ## 8. 维护原则
 
