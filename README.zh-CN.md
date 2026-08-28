@@ -277,6 +277,8 @@ Web Imagine 生成只向上游发送协议支持的 `aspect_ratio` 和 `resoluti
 
 Web 图片编辑使用当前 `mediaGenInput.imageToImage` 协议：上传得到的 `fileMetadataId` 通过 `inputAssets` 提交，并保留当前 Grok 网页实际发送的 `kind=CONVERSATION_KIND_IMAGINE` 与 `responseMetadata.modelConfigOverride.modelMap.imageEditModel=imagine`。`image_edit_is_root_user_uploaded` 属于上游响应资产的辅助元数据，不得作为请求字段发送。
 
+当最终会话响应包含多个生成 URL 时，适配器优先选择 `fileAttachmentAssetMetadata` 中明确标记为 `isModelGenerated=true`、`isLatest=true` 且不是预览图的最终资产；只有缺少最终资产元数据时才回退到 `generatedImageUrls`，避免 `/v1/images/edits` 返回中间图或旧候选。
+
 图片编辑的上传与生成请求还会携带同一组运行时身份 Cookie：解析得到的 `x-userid` 与稳定的账号级 `grok_device_id`。账号导入或更新时若提供网页抓包中的真实 `grok_device_id`，上传和生成两阶段会原样复用该持久设备身份；旧账号未保存该值时，才继续使用由 `x-userid` 稳定派生的 UUID。托管 Clearance 模式只把账号设备 Cookie 合并到服务器刷新出的 Cloudflare Cookie 中，`cf_clearance` 仍以 FlareSolverr/on-demand 刷新结果为准。
 
 Web 图生图完整保留抓包中的三个浏览器阶段：上传使用 `/imagine` 页面，创建编辑会话使用 `/imagine/post/<UUID>` Referer，随后再按网页协议读取 `/rest/app-chat/conversations/<conversation-id>/responses?conversationKind=CONVERSATION_KIND_IMAGINE`，并携带匹配的 post/conversation Referer。最终结果只允许来自最后一条 Imagine Assistant 响应的 `generatedImageUrls`，输入附件、预览图以及其他偶然出现的 `/generated/` 字符串都不会被选中。诊断日志只额外记录上游返回的模型标签和参考图数量汇总，便于确认实际 Imagine 代际，不记录资产 ID 或图片内容。

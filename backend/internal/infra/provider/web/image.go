@@ -1273,9 +1273,16 @@ func imageEditConversationResponseURLs(data []byte) ([]string, bool) {
 			!strings.EqualFold(strings.TrimSpace(response.Model), "imagine-image-edit") {
 			continue
 		}
-		urls := make([]string, 0, len(response.GeneratedImageURLs))
-		for _, value := range response.GeneratedImageURLs {
-			value = absoluteAssetURL(value)
+		// The responses endpoint may keep several generatedImageUrls for one
+		// Imagine turn. The browser identifies the final deliverable through
+		// fileAttachmentAssetMetadata; prefer that explicit latest marker so an
+		// intermediate/preview URL cannot become the OpenAI-compatible result.
+		urls := make([]string, 0, len(response.Assets))
+		for _, asset := range response.Assets {
+			if !asset.IsModelGenerated || !asset.IsLatest || strings.Contains(asset.Key, "/preview_image.") {
+				continue
+			}
+			value := absoluteAssetURL(asset.Key)
 			if value != "" && !containsString(urls, value) {
 				urls = append(urls, value)
 			}
@@ -1283,11 +1290,12 @@ func imageEditConversationResponseURLs(data []byte) ([]string, bool) {
 		if len(urls) > 0 {
 			return urls, true
 		}
-		for _, asset := range response.Assets {
-			if !asset.IsModelGenerated || !asset.IsLatest || strings.Contains(asset.Key, "/preview_image.") {
+		urls = make([]string, 0, len(response.GeneratedImageURLs))
+		for _, value := range response.GeneratedImageURLs {
+			if strings.Contains(value, "/preview_image.") {
 				continue
 			}
-			value := absoluteAssetURL(asset.Key)
+			value = absoluteAssetURL(value)
 			if value != "" && !containsString(urls, value) {
 				urls = append(urls, value)
 			}
