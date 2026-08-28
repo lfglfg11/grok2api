@@ -970,10 +970,12 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 			return nil, fmt.Errorf("上传图片成功但上游未返回 fileMetadataId")
 		}
 		a.log().Info("web_image_edit_upload_resolved",
+			"account_id", request.Credential.ID,
 			"file_source", uploaded.FileSource,
 			"metadata_present", uploaded.MetadataID != "",
 			"uri_present", uploaded.URI != "",
 			"uri_user_match", uploaded.URI != "" && strings.Contains(uploaded.URI, "/users/"+strings.TrimSpace(userID)+"/"),
+			"device_cookie_present", cookieValue(lease.CFCookies, "grok_device_id") != "",
 			"mime_type", image.MIMEType,
 			"input_bytes", len(image.Data),
 		)
