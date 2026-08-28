@@ -277,7 +277,7 @@ Web Imagine 生成只向上游发送协议支持的 `aspect_ratio` 和 `resoluti
 
 Web 图片编辑使用当前 `mediaGenInput.imageToImage` 协议：上传得到的 `fileMetadataId` 通过 `inputAssets` 提交，并保留当前 Grok 网页实际发送的 `kind=CONVERSATION_KIND_IMAGINE` 与 `responseMetadata.modelConfigOverride.modelMap.imageEditModel=imagine`。`image_edit_is_root_user_uploaded` 属于上游响应资产的辅助元数据，不得作为请求字段发送。
 
-创建图片编辑会话时，Referer 保持网页使用的 `/imagine/post/{uuid}` 形态；`conversations/new` 的 Statsig 签名则使用实际加载的 `/imagine` 文档 verification meta。post 地址只是 SPA 客户端路由，并没有发生新的文档加载，因此站点根页和临时构造的 post 页面都不能替代 `/imagine` 的 meta。
+创建图片编辑会话时，Referer 保持网页使用的 `/imagine/post/{uuid}` 形态，结果查询继续携带 conversation 参数；当前图片编辑的 Statsig 签名按上游 main 的通用 Web 策略处理，收到 `403 code=7` 时只失效并刷新对应签名。视频 Imagine 请求仍保留独立的页面签名策略。
 
 当最终会话响应包含多个生成 URL 时，适配器优先选择 `fileAttachmentAssetMetadata` 中明确标记为 `isModelGenerated=true`、`isLatest=true` 且不是预览图的最终资产；只有缺少最终资产元数据时才回退到 `generatedImageUrls`，避免 `/v1/images/edits` 返回中间图或旧候选。
 

@@ -280,7 +280,7 @@ Image-edit session creation keeps the browser-shaped `/imagine/post/{uuid}` Refe
 
 When the final conversation response contains multiple generated URLs, the adapter prefers the non-preview asset explicitly marked `isModelGenerated=true` and `isLatest=true` in `fileAttachmentAssetMetadata`. It falls back to `generatedImageUrls` only when final asset metadata is unavailable, preventing an intermediate or stale image from being returned by `/v1/images/edits`.
 
-Image-edit Referers follow the visible SPA route: creation uses `/imagine/post/{post_id}`, and response polling uses the same page with its `conversation` query. Statsig remains bound to the `/imagine` document that initialized the SPA; a structured `403 code=7` invalidates and refreshes only this Imagine-document signature.
+Image-edit Referers follow the visible SPA route: creation uses `/imagine/post/{post_id}`, and response polling uses the same page with its `conversation` query. Image edits currently use the generic Web Statsig signature behavior aligned with upstream main; a structured `403 code=7` invalidates and refreshes only that signature. Video Imagine requests retain their separate page-specific signing behavior.
 
 Before a Web image edit upload, the adapter refreshes the current `user_id` from `/api/auth/session` on the same Web lease and uses it for `x-userid` plus the upload/generation flow. The persisted account identity is only a fallback when the Session refresh is unavailable, preventing an uploaded asset from being accepted but treated as non-root-owned by the upstream editor.
 
