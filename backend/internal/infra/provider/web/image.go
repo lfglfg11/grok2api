@@ -972,7 +972,7 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 		assets = append(assets, uploaded.MetadataID)
 	}
 	payload := buildImageEditPayload(request.Prompt, assets, ratio)
-	response, err := a.postJSONWithReferer(ctx, cfg, lease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.ImageTimeoutSeconds)*time.Second, cfg.BaseURL+"/imagine")
+	response, err := a.postJSONWithReferer(ctx, cfg, lease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.ImageTimeoutSeconds)*time.Second, imageEditGenerateReferer(cfg.BaseURL))
 	if err != nil {
 		return nil, err
 	}
@@ -1032,6 +1032,10 @@ func buildImageEditPayload(prompt string, assets []string, aspectRatio string) m
 		"mediaGenInput": map[string]any{"imageToImage": imageToImage},
 		"kind":          "CONVERSATION_KIND_IMAGINE",
 	}
+}
+
+func imageEditGenerateReferer(baseURL string) string {
+	return strings.TrimRight(baseURL, "/") + "/imagine/post/" + newRequestUUID()
 }
 
 func resolveImageEditAspectRatio(aspectRatio, size string) (string, error) {

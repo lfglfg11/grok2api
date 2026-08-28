@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -934,6 +935,13 @@ func TestBuildImageEditPayloadMatchesCapturedMediaGenInputShape(t *testing.T) {
 	imageToImage = mediaGenInput["imageToImage"].(map[string]any)
 	if _, exists := imageToImage["aspectRatio"]; exists {
 		t.Fatalf("empty aspect ratio leaked into payload: %#v", imageToImage)
+	}
+}
+
+func TestImageEditGenerateRefererMatchesCapturedPostPage(t *testing.T) {
+	referer := imageEditGenerateReferer("https://grok.com/")
+	if !regexp.MustCompile(`^https://grok\.com/imagine/post/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`).MatchString(referer) {
+		t.Fatalf("referer = %q", referer)
 	}
 }
 

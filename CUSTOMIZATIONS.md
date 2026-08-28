@@ -9,7 +9,7 @@
 | 项目 | 提交 |
 | --- | --- |
 | 二开分支 | `video-image` |
-| 本文覆盖的最后一个业务二开提交 | 当前工作树：增加 Web 图片编辑脱敏协议诊断 |
+| 本文覆盖的最后一个业务二开提交 | 当前工作树：对齐 Web 图片编辑生成页 Referer 并增加脱敏诊断 |
 | 最新上游合并提交 | `20473523` (`Merge branch 'main' into video-image`) |
 | 已合入的官方基线 | `62d2775c` (`Merge pull request #1009 from chenyme/gateway`) |
 | 记录时官方 `upstream/main` | `62d2775c` |
@@ -269,6 +269,7 @@ git merge upstream/main
 - 远程图片下载保留 SSRF、重定向、大小、MIME、凭据隔离保护。
 - Images Generations 带 `image/images` 时仍自动进入编辑流程。
 - Web 图片编辑上传继续发送 `IMAGINE_SELF_UPLOAD_FILE_SOURCE`，并使用响应中的 `fileMetadataId` 作为 `inputAssets`；诊断日志不得记录资产 ID、URL、图片内容、Cookie 或 token。
+- Web 图片编辑上传阶段使用 `/imagine` Referer，生成阶段使用网页同形态的 `/imagine/post/<UUID>` Referer；同步上游时不得把两阶段重新合并成同一个固定 Referer。
 - 三个 `-2k` 模型在三类兼容接口中仍强制 2K，四个 OpenAI 图片别名映射正确；Imagine 2.0 Web 最终成品仍执行服务端 2K 放大，且上游请求不得重新出现像素/`size` 字段。
 - 同名图片生成/编辑路由并存时，Chat/Responses 仍选择 `CapabilityImage`；不得依赖目录顺序或会话目标随机排序，`/v1/images/edits` 也不能因此失效。
 - 未来 `*-multi-agent-*` 模型仍补齐三个工具，`tool_choice: none` 仍能关闭。
@@ -342,7 +343,8 @@ RikkaHub 手工验证请求：
 | `394b996d` | 修复 Chat 图片模型误选编辑路由，并保留 `-2k` 固定分辨率契约 |
 | `ad01c7c1` | 修复 Imagine 2.0 Chat 图生图分流，并将 Web 2K 本地成品调整为约 4.2MP 等比尺寸 |
 | `b097cb03` | Web Imagine 图片编辑载荷重新与当前网页协议对齐：保留 Imagine 编辑模式字段，移除误加的响应侧 `image_edit_is_root_user_uploaded`，并为上游拒绝日志增加脱敏后的错误码与消息 |
-| 本次诊断 | 解析上传响应的 `fileSource`，并输出不含凭据、资产标识和 URL 的根参考图识别诊断，定位上游是否真正绑定 `inputAssets` |
+| `1948f2c6` | 解析上传响应的 `fileSource`，并输出不含凭据、资产标识和 URL 的根参考图识别诊断，定位上游是否真正绑定 `inputAssets` |
+| 本次修复 | 按网页抓包将图片编辑生成请求的 Referer 对齐为 `/imagine/post/<UUID>`，上传 Referer 仍保持 `/imagine` |
 
 ## 8. 维护原则
 
