@@ -153,7 +153,7 @@ Images API 的最终兼容行为：
 - 当同一公开模型同时注册 `CapabilityImage` 和 `CapabilityImageEdit` 时，Chat Completions/Responses 的会话候选池按当前消息内容分流：纯文本先选择图片生成能力，带图片附件则优先选择 `CapabilityImageEdit`；`/v1/images/edits` 仍按编辑能力独立选路。对 `grok-imagine-image-2.0`，带图请求保留公开模型名，但向 Web 上游严格映射为网页抓包一致的 `modelName=imagine-image-edit`、`responseMetadata.modelConfigOverride.modelMap.imageEditModel=imagine` 和 `mediaGenInput.imageToImage`，避免误落到第一代普通生成模型；旧图片模型带附件仍提示改用 `/v1/images/edits`。
 - Web 图片编辑请求使用当前 `mediaGenInput.imageToImage` 协议：`inputAssets` 必须提交上传响应中的 `fileMetadataId`，并保留当前 Grok 网页实际发送的 `kind=CONVERSATION_KIND_IMAGINE` 与 `responseMetadata.modelConfigOverride.modelMap.imageEditModel=imagine`。`image_edit_is_root_user_uploaded` 是上游响应资产中的辅助元数据，不是请求字段，同步上游时不得误加到请求载荷。
 - Web 图片编辑完成后优先从会话 `responses` 的 `fileAttachmentAssetMetadata` 中选择同时标记为 `isModelGenerated=true`、`isLatest=true` 且不是 `preview_image` 的最终成品；只有上游未返回附件元数据时才回退到 `generatedImageUrls`，避免把旧候选、预览图或中间产物误返回给 `/v1/images/edits`。
-- Web 图片编辑的 `x-statsig-id` 必须按真实 Referer 页面刷新：生成请求使用 `/imagine/post/{post_id}`，结果查询使用带 `conversation` 参数的同一页面；收到 `403 code=7`（页面过期）时只失效并重签该页面路径，不能固定复用 `/imagine` 的签名。
+- Web 图片编辑的 Referer 与 Statsig 页面来源必须分开处理：生成请求保留 `/imagine/post/{post_id}`，结果查询保留带 `conversation` 参数的同一 Referer；但这些地址只是 SPA 客户端路由，网页没有重新加载文档，因此两阶段的 `x-statsig-id` 都必须继续使用初始 `/imagine` 文档的 `grok-site-verification`。收到 `403 code=7` 时只失效并重签 `/imagine` 专用缓存，不能改用站点根页或随机 post 页的 meta。
 - Web 原生图片编辑在上传前会在同一 Web 租约上刷新 `/api/auth/session` 的当前 `user_id`，再把该身份同时用于 `x-userid` 和上传/生成流程；数据库中保存的旧 user_id 仅作为 Session 刷新失败时的回退，避免上传成功但被上游标记为非根用户资产。
 - Web Chat 生图从原始 JSON 的公开模型名恢复固定分辨率别名，因此 `grok-imagine-image-2.0-2k` 即使在网关内被转换为相同的上游模型名，也仍会强制 `resolution=2k` 并执行最终成品 2K 放大。
 - `grok-imagine-image-2.0` 与衍生模型 `grok-imagine-image-2.0-2k` 当前只启用 Web 路由，Chat Completions、Images Generations、Images Edits 都由 Web 承接。真实上游实验确认 Web 当前即使收到 `resolution=2k` 仍返回约 1K 像素，因此当模型为 `grok-imagine-image-2.0-2k` 或请求显式指定 `resolution=2k` 时，服务端会在下载最终成品后使用 Catmull-Rom 高质量缩放生成真实 2K 像素文件，再进行本地存储、URL 返回或 Base64 返回；这属于服务端后处理，不应描述为上游原生 2K。
@@ -354,6 +354,7 @@ RikkaHub 手工验证请求：
 | `9ec5a5b5` | 图片编辑上传与生成阶段绑定由账号记录或 `/api/auth/session` 可信解析的同一个 `x-userid`；账号导入仍拒绝浏览器身份 Cookie |
 | `6cc048b4` | 根据三组网页抓包，为图片编辑上传与生成阶段补齐由可信 `x-userid` 稳定派生的同一个账号级 `grok_device_id`；不保存或重放抓包身份 Cookie |
 | `2cf6074f` | Imagine 图片/视频媒体 POST 改用 `/imagine` 页面 verification meta 生成 Statsig，并与默认 Web 签名缓存和失效范围隔离 |
+| `4694f486` | 修正图片编辑 Statsig 回归：保留抓包中的 post/conversation Referer，但创建和结果读取都固定使用实际加载的 `/imagine` SPA 文档 meta，避免站点根页或虚拟 post 路由触发 `403 code=7` |
 | 待本次提交 | 允许账号 Cookie 保存真实 `grok_device_id`；托管 Clearance 模式把该设备身份合并到服务器刷新出的 CF Cookie，并在媒体请求中优先复用，旧账号保持派生回退 |
 | 待本次提交 | 补齐网页图生图的 conversation responses 最终结果读取，优先使用会话成品并记录上游返回的模型标签，避免误取创建流中的旧模型/旁路候选图 |
 | 待本次提交 | 按网页响应结构解析顶层 `responses[]`，只选择最后一条 Imagine Assistant 的 `generatedImageUrls`，排除 map 遍历顺序导致的输入图、预览图和旁路图误选 |

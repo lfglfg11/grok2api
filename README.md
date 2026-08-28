@@ -276,11 +276,11 @@ When one public image model exposes both generation and edit routes, Chat Comple
 
 Web image edits use the current `mediaGenInput.imageToImage` protocol. Each uploaded `fileMetadataId` is sent through `inputAssets`, while the request also retains `kind=CONVERSATION_KIND_IMAGINE` and `responseMetadata.modelConfigOverride.modelMap.imageEditModel=imagine`, matching the current Grok web client. `image_edit_is_root_user_uploaded` is response-side asset metadata and must not be added to the request payload.
 
-Image-edit session creation keeps the browser-shaped `/imagine/post/{uuid}` Referer, while `conversations/new` is signed from the current site's global verification metadata. This avoids deriving a signature from a not-yet-existing random post page that may serve stale build metadata and trigger upstream `403 code=7`.
+Image-edit session creation keeps the browser-shaped `/imagine/post/{uuid}` Referer, while `conversations/new` is signed from the verification metadata of the loaded `/imagine` document. The post URL is only an SPA route and does not represent a new document load, so neither the site root nor a synthetic post page is a valid metadata substitute.
 
 When the final conversation response contains multiple generated URLs, the adapter prefers the non-preview asset explicitly marked `isModelGenerated=true` and `isLatest=true` in `fileAttachmentAssetMetadata`. It falls back to `generatedImageUrls` only when final asset metadata is unavailable, preventing an intermediate or stale image from being returned by `/v1/images/edits`.
 
-Image-edit Statsig signatures are bound to the actual browser Referer page: creation uses `/imagine/post/{post_id}`, and response polling uses the same page with its `conversation` query. A structured `403 code=7` invalidates and refreshes only that exact page-bound signature instead of reusing the generic `/imagine` signature.
+Image-edit Referers follow the visible SPA route: creation uses `/imagine/post/{post_id}`, and response polling uses the same page with its `conversation` query. Statsig remains bound to the `/imagine` document that initialized the SPA; a structured `403 code=7` invalidates and refreshes only this Imagine-document signature.
 
 Before a Web image edit upload, the adapter refreshes the current `user_id` from `/api/auth/session` on the same Web lease and uses it for `x-userid` plus the upload/generation flow. The persisted account identity is only a fallback when the Session refresh is unavailable, preventing an uploaded asset from being accepted but treated as non-root-owned by the upstream editor.
 
