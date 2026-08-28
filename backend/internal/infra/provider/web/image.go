@@ -975,7 +975,7 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 			"metadata_present", uploaded.MetadataID != "",
 			"uri_present", uploaded.URI != "",
 			"uri_user_match", uploaded.URI != "" && strings.Contains(uploaded.URI, "/users/"+strings.TrimSpace(userID)+"/"),
-			"device_cookie_present", cookieValue(lease.CFCookies, "grok_device_id") != "",
+			"lease_device_cookie_present", cookieValue(lease.CFCookies, "grok_device_id") != "",
 			"mime_type", image.MIMEType,
 			"input_bytes", len(image.Data),
 		)
