@@ -596,6 +596,17 @@ func (s *Service) eligibleConversationRoutes(routes []modeldomain.Route, key cli
 	if len(routes) == 0 || s.providers == nil {
 		return nil, modeldomain.Route{}, ErrModelNotFound
 	}
+	// A public image model may expose both generation and edit capabilities.
+	// Conversation endpoints are prompt-first, so prefer the generation target;
+	// otherwise target ordering can route a plain text request to image_edit and
+	// reject it for missing input images.
+	hasImageGenerationRoute := false
+	for _, route := range routes {
+		if route.Capability == modeldomain.CapabilityImage {
+			hasImageGenerationRoute = true
+			break
+		}
+	}
 	fallback := routes[0]
 	eligible := make([]modeldomain.Route, 0, len(routes))
 	accountScope := key.AccountScope()
@@ -605,6 +616,9 @@ func (s *Service) eligibleConversationRoutes(routes []modeldomain.Route, key cli
 	conversationSupported := false
 	storedResponseUnsupported := false
 	for _, route := range routes {
+		if hasImageGenerationRoute && route.Capability == modeldomain.CapabilityImageEdit {
+			continue
+		}
 		if ownership != nil {
 			if ownership.ModelRouteID != 0 {
 				if route.ID != ownership.ModelRouteID {

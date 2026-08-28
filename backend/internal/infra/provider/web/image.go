@@ -29,6 +29,7 @@ import (
 	"github.com/chenyme/grok2api/backend/internal/domain/account"
 	domainegress "github.com/chenyme/grok2api/backend/internal/domain/egress"
 	mediadomain "github.com/chenyme/grok2api/backend/internal/domain/media"
+	modeldomain "github.com/chenyme/grok2api/backend/internal/domain/model"
 	"github.com/chenyme/grok2api/backend/internal/infra/egress"
 	"github.com/chenyme/grok2api/backend/internal/infra/provider"
 	"github.com/chenyme/grok2api/backend/internal/infra/provider/conversation"
@@ -618,12 +619,7 @@ func (a *Adapter) forwardImageChatCompletion(ctx context.Context, request provid
 }
 
 func (a *Adapter) forwardQualityImageChatCompletion(ctx context.Context, request provider.ResponseResourceRequest, input openAIRequest, normalized normalizedChatInput, count int, format string) (*provider.Response, error) {
-	aspectRatio := ""
-	resolution := ""
-	if input.ImageConfig != nil {
-		aspectRatio = input.ImageConfig.AspectRatio
-		resolution = input.ImageConfig.Resolution
-	}
+	aspectRatio, resolution := imageChatConfig(input)
 	generated, err := a.GenerateImage(ctx, provider.ImageGenerationRequest{
 		Credential: request.Credential, Model: request.Model, Prompt: normalized.Prompt,
 		Count: count, AspectRatio: aspectRatio, Resolution: resolution, ResponseFormat: format,
@@ -668,6 +664,18 @@ func (a *Adapter) forwardQualityImageChatCompletion(ctx context.Context, request
 		return nil, err
 	}
 	return &provider.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: jsonHeaders(), Body: io.NopCloser(bytes.NewReader(data)), QuotaUnits: generated.QuotaUnits}, nil
+}
+
+func imageChatConfig(input openAIRequest) (string, string) {
+	aspectRatio := ""
+	resolution := ""
+	if input.ImageConfig != nil {
+		aspectRatio = input.ImageConfig.AspectRatio
+		resolution = input.ImageConfig.Resolution
+	}
+	// The concrete upstream name does not retain downstream aliases. Restore the
+	// fixed-resolution contract from the model name in the original JSON body.
+	return aspectRatio, modeldomain.ApplyForcedImageResolution(input.Model, resolution)
 }
 
 func buildImageCompatibilityStream(operation, responseID, model string, parsed *parsedChat) ([]byte, error) {

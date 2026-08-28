@@ -756,6 +756,21 @@ func TestParseLiteImageCardAttachment(t *testing.T) {
 	}
 }
 
+func TestImageChatConfigPreservesFixed2KAlias(t *testing.T) {
+	aspectRatio, resolution := imageChatConfig(openAIRequest{
+		Model: "grok-imagine-image-2.0-2k",
+		ImageConfig: &struct {
+			Count          *int   `json:"n"`
+			ResponseFormat string `json:"response_format"`
+			AspectRatio    string `json:"aspect_ratio"`
+			Resolution     string `json:"resolution"`
+		}{AspectRatio: "2:3"},
+	})
+	if aspectRatio != "2:3" || resolution != "2k" {
+		t.Fatalf("image chat config = aspect_ratio %q resolution %q", aspectRatio, resolution)
+	}
+}
+
 func TestParseLiteNestedUsageLimit(t *testing.T) {
 	parsed := &parsedChat{}
 	frame := []byte(`{"result":{"response":{"error":{"message":"You've reached your usage limit. Please try again later."},"cardAttachment":{"jsonData":"{\"image_chunk\":{\"progress\":100,\"systemErrCode\":\"rate_limit\"}}"}}}}`)

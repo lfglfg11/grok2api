@@ -1138,6 +1138,26 @@ func TestSelectConversationRouteRespectsClientKeyAcrossSharedPublicModel(t *test
 	}
 }
 
+func TestSelectConversationRoutePrefersImageGenerationOverSameNameEdit(t *testing.T) {
+	registry := provider.NewRegistry(webStoredResponseAdapter{})
+	service := &Service{
+		clientKeys: clientkeyapp.NewService(nil, nil, nil, 60, 4, nil),
+		providers:  registry,
+	}
+	routes := []modeldomain.Route{
+		{ID: 10, PublicID: "Web/grok-imagine-image-2.0", Provider: account.ProviderWeb, UpstreamModel: "grok-imagine-image-2.0", Capability: modeldomain.CapabilityImage},
+		{ID: 11, PublicID: "Web/grok-imagine-image-2.0", Provider: account.ProviderWeb, UpstreamModel: "imagine-image-edit", Capability: modeldomain.CapabilityImageEdit},
+	}
+
+	eligible, _, err := service.eligibleConversationRoutes(routes, clientkey.Key{}, audit.OperationChat, "/responses", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(eligible) != 1 || eligible[0].Capability != modeldomain.CapabilityImage || eligible[0].UpstreamModel != "grok-imagine-image-2.0" {
+		t.Fatalf("conversation image candidates = %#v", eligible)
+	}
+}
+
 func TestOrderConversationRouteTargetsIsSessionStableAndProviderScoped(t *testing.T) {
 	routes := []modeldomain.Route{
 		{ID: 10, Provider: account.ProviderBuild},
@@ -4338,7 +4358,7 @@ func (webStoredResponseAdapter) Definition() provider.Definition {
 	return provider.Definition{
 		Provider: account.ProviderWeb,
 		Conversation: provider.ConversationSurface{
-			Responses: true, StoredResponses: true,
+			Responses: true, ChatCompletions: true, StoredResponses: true,
 		},
 		Inference: provider.InferencePolicy{Usage: provider.UsageEstimated},
 	}
