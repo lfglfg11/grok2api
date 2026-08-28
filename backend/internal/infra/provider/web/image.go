@@ -1884,7 +1884,8 @@ func (a *Adapter) postJSON(ctx context.Context, cfg Config, lease *egress.Lease,
 
 func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *egress.Lease, token, endpoint string, payload any, timeout time.Duration, referer, userID, statsigPagePath string) (*http.Response, error) {
 	data, _ := json.Marshal(payload)
-	for attempt := 0; attempt < 2; attempt++ {
+	unsignedImageEditRetry := false
+	for attempt := 0; attempt < 3; attempt++ {
 		requestCtx, cancel := context.WithTimeout(ctx, timeout)
 		request, err := http.NewRequestWithContext(requestCtx, http.MethodPost, endpoint, bytes.NewReader(data))
 		if err != nil {
@@ -1897,10 +1898,12 @@ func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *eg
 		// The browser changes the address bar to /imagine/post/<uuid> without a
 		// document navigation. Keep that captured Referer, but sign with metadata
 		// from the /imagine document that actually initialized the SPA.
-		if strings.TrimSpace(statsigPagePath) == "" {
-			a.applySignedStatsig(requestCtx, request, token, lease)
-		} else {
-			a.applySignedStatsigForPage(requestCtx, request, token, lease, statsigPagePath)
+		if !unsignedImageEditRetry {
+			if strings.TrimSpace(statsigPagePath) == "" {
+				a.applySignedStatsig(requestCtx, request, token, lease)
+			} else {
+				a.applySignedStatsigForPage(requestCtx, request, token, lease, statsigPagePath)
+			}
 		}
 		response, err := lease.DoDeferredForbidden(request)
 		if err != nil {
@@ -1944,6 +1947,15 @@ func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *eg
 				if attempt == 0 && invalidated {
 					continue
 				}
+				// Some Grok deployments reject the externally signed Statsig header
+				// for the Imagine edit endpoint even after a fresh page-bound
+				// signature. Try one protocol-compatible unsigned replay only for
+				// this endpoint; other JSON requests retain the existing two-step
+				// refresh behavior.
+				if attempt == 1 && isImageEditConversationEndpoint(endpoint) && !unsignedImageEditRetry {
+					unsignedImageEditRetry = true
+					continue
+				}
 				return response, nil
 			}
 			// Remaining structured JSON responses are application policy decisions.
@@ -1963,6 +1975,10 @@ func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *eg
 		return response, nil
 	}
 	return nil, fmt.Errorf("Grok Web Statsig 刷新失败")
+}
+
+func isImageEditConversationEndpoint(endpoint string) bool {
+	return strings.Contains(endpoint, "/rest/app-chat/conversations/new")
 }
 
 func (a *Adapter) imageResponse(ctx context.Context, credential account.Credential, urls, blobs []string, count int, format string) (*provider.Response, error) {
