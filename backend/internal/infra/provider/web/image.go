@@ -1295,13 +1295,19 @@ func imageEditConversationResponseURLs(data []byte) ([]string, bool) {
 			return urls, true
 		}
 		urls = make([]string, 0, len(response.GeneratedImageURLs))
-		for _, value := range response.GeneratedImageURLs {
+		// When attachment metadata is absent, Grok may return several candidates
+		// in chronological order (older/stale first, newest final last). Prefer
+		// the newest non-preview URL so a stale unrelated image cannot become the
+		// OpenAI-compatible edit result.
+		for index := len(response.GeneratedImageURLs) - 1; index >= 0; index-- {
+			value := response.GeneratedImageURLs[index]
 			if strings.Contains(value, "/preview_image.") {
 				continue
 			}
 			value = absoluteAssetURL(value)
 			if value != "" && !containsString(urls, value) {
 				urls = append(urls, value)
+				break
 			}
 		}
 		return urls, true

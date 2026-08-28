@@ -280,6 +280,7 @@ Web 图片编辑使用当前 `mediaGenInput.imageToImage` 协议：上传得到�
 创建图片编辑会话时，Referer 保持网页使用的 `/imagine/post/{uuid}` 形态，结果查询继续携带 conversation 参数；当前图片编辑的 Statsig 签名按上游 main 的通用 Web 策略处理，收到 `403 code=7` 时只失效并刷新对应签名。视频 Imagine 请求仍保留独立的页面签名策略。
 
 当最终会话响应包含多个生成 URL 时，适配器优先选择 `fileAttachmentAssetMetadata` 中明确标记为 `isModelGenerated=true`、`isLatest=true` 且不是预览图的最终资产；只有缺少最终资产元数据时才回退到 `generatedImageUrls`，避免 `/v1/images/edits` 返回中间图或旧候选。
+如果上游没有附件元数据而返回多个 URL，回退时会从列表末尾向前选择最新的非预览候选。
 
 图片编辑的 Referer 跟随浏览器可见的 SPA 路由：创建请求使用 `/imagine/post/{post_id}`，结果查询使用同一页面及其 `conversation` 查询参数；Statsig 始终绑定初始化 SPA 的 `/imagine` 文档。收到结构化 `403 code=7` 后，只失效并刷新这份 Imagine 文档签名。
 

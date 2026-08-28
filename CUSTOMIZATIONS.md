@@ -153,6 +153,7 @@ Images API 的最终兼容行为：
 - 当同一公开模型同时注册 `CapabilityImage` 和 `CapabilityImageEdit` 时，Chat Completions/Responses 的会话候选池按当前消息内容分流：纯文本先选择图片生成能力，带图片附件则优先选择 `CapabilityImageEdit`；`/v1/images/edits` 仍按编辑能力独立选路。对 `grok-imagine-image-2.0`，带图请求保留公开模型名，但向 Web 上游严格映射为网页抓包一致的 `modelName=imagine-image-edit`、`responseMetadata.modelConfigOverride.modelMap.imageEditModel=imagine` 和 `mediaGenInput.imageToImage`，避免误落到第一代普通生成模型；旧图片模型带附件仍提示改用 `/v1/images/edits`。
 - Web 图片编辑请求使用当前 `mediaGenInput.imageToImage` 协议：`inputAssets` 必须提交上传响应中的 `fileMetadataId`，并保留当前 Grok 网页实际发送的 `kind=CONVERSATION_KIND_IMAGINE` 与 `responseMetadata.modelConfigOverride.modelMap.imageEditModel=imagine`。`image_edit_is_root_user_uploaded` 是上游响应资产中的辅助元数据，不是请求字段，同步上游时不得误加到请求载荷。
 - Web 图片编辑完成后优先从会话 `responses` 的 `fileAttachmentAssetMetadata` 中选择同时标记为 `isModelGenerated=true`、`isLatest=true` 且不是 `preview_image` 的最终成品；只有上游未返回附件元数据时才回退到 `generatedImageUrls`，避免把旧候选、预览图或中间产物误返回给 `/v1/images/edits`。
+- 当上游结果没有附件元数据、仅返回多个 `generatedImageUrls` 时，回退选择按最新候选优先（从列表末尾向前跳过 `preview_image`，只取最新一张），避免把列表开头的旧候选误当成编辑结果。
 - Web 图片编辑的 Referer 保留网页使用的 `/imagine/post/{post_id}` 及 conversation 查询参数；当前上游 main 的兼容行为要求图片编辑创建/查询使用通用 Statsig 签名，收到 `403 code=7` 时只失效并重签对应通用缓存。视频 Imagine 请求仍保留其页面专用签名策略，不能把两条链路混用。
 - Web 原生图片编辑在上传前会在同一 Web 租约上刷新 `/api/auth/session` 的当前 `user_id`，再把该身份同时用于 `x-userid` 和上传/生成流程；数据库中保存的旧 user_id 仅作为 Session 刷新失败时的回退，避免上传成功但被上游标记为非根用户资产。
 - Web Chat 生图从原始 JSON 的公开模型名恢复固定分辨率别名，因此 `grok-imagine-image-2.0-2k` 即使在网关内被转换为相同的上游模型名，也仍会强制 `resolution=2k` 并执行最终成品 2K 放大。
