@@ -1781,6 +1781,9 @@ func TestGenerateVideoRefreshesOnlyReloadStatsigForbidden(t *testing.T) {
 			adapter.statsig.fetchMeta = func(context.Context, string, string, *infraegress.Lease) (string, error) {
 				return "current-page-meta", nil
 			}
+			adapter.statsig.fetchMetaForPath = func(context.Context, string, string, *infraegress.Lease, string) (string, error) {
+				return "current-page-meta", nil
+			}
 			adapter.statsig.validateEndpoint = func(context.Context, string) error { return nil }
 
 			result, err := adapter.GenerateVideo(context.Background(), provider.VideoRequest{

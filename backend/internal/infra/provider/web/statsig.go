@@ -50,6 +50,7 @@ type statsigWarmTarget struct {
 type statsigSigner struct {
 	client           *http.Client
 	fetchMeta        func(context.Context, string, string, *infraegress.Lease) (string, error)
+	fetchMetaForPath func(context.Context, string, string, *infraegress.Lease, string) (string, error)
 	validateEndpoint func(context.Context, string) error
 	now              func() time.Time
 	mu               sync.Mutex
@@ -64,6 +65,7 @@ func newStatsigSigner() *statsigSigner {
 			CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
 		},
 		fetchMeta:        fetchStatsigMetaContent,
+		fetchMetaForPath: fetchStatsigMetaContentForPath,
 		validateEndpoint: validateStatsigSignerEndpoint,
 		now:              time.Now,
 		entries:          make(map[string]statsigCacheEntry),
@@ -71,7 +73,15 @@ func newStatsigSigner() *statsigSigner {
 }
 
 func (s *statsigSigner) Sign(ctx context.Context, baseURL, signerURL, token string, lease *infraegress.Lease, method, target string) (string, string, error) {
-	key, path, err := statsigSignatureKey(baseURL, signerURL, method, target)
+	return s.sign(ctx, baseURL, signerURL, token, lease, method, target, "")
+}
+
+func (s *statsigSigner) SignForPage(ctx context.Context, baseURL, signerURL, token string, lease *infraegress.Lease, method, target, pagePath string) (string, string, error) {
+	return s.sign(ctx, baseURL, signerURL, token, lease, method, target, pagePath)
+}
+
+func (s *statsigSigner) sign(ctx context.Context, baseURL, signerURL, token string, lease *infraegress.Lease, method, target, pagePath string) (string, string, error) {
+	key, path, err := statsigSignatureKeyForPage(baseURL, signerURL, method, target, pagePath)
 	if err != nil {
 		return "", "", err
 	}
@@ -83,7 +93,7 @@ func (s *statsigSigner) Sign(ctx context.Context, baseURL, signerURL, token stri
 		if cached, ok := s.cached(key, now); ok {
 			return statsigSignResult{value: cached, source: "cache"}, nil
 		}
-		fresh, refreshErr := s.freshSignature(ctx, baseURL, signerURL, token, lease, method, path)
+		fresh, refreshErr := s.freshSignature(ctx, baseURL, signerURL, token, lease, method, path, pagePath)
 		if refreshErr != nil {
 			if stale, ok := s.stale(key); ok {
 				return statsigSignResult{value: stale, source: "stale"}, nil
@@ -138,8 +148,8 @@ func (s *statsigSigner) Warm(ctx context.Context, baseURL, signerURL, token stri
 	return warmed, nil
 }
 
-func (s *statsigSigner) freshSignature(ctx context.Context, baseURL, signerURL, token string, lease *infraegress.Lease, method, path string) (string, error) {
-	meta, err := s.fetchMeta(ctx, baseURL, token, lease)
+func (s *statsigSigner) freshSignature(ctx context.Context, baseURL, signerURL, token string, lease *infraegress.Lease, method, path, pagePath string) (string, error) {
+	meta, err := s.metaContent(ctx, baseURL, token, lease, pagePath)
 	if err != nil {
 		return "", err
 	}
@@ -148,7 +158,7 @@ func (s *statsigSigner) freshSignature(ctx context.Context, baseURL, signerURL, 
 		return signature, nil
 	}
 
-	meta, refreshErr := s.fetchMeta(ctx, baseURL, token, lease)
+	meta, refreshErr := s.metaContent(ctx, baseURL, token, lease, pagePath)
 	if refreshErr != nil {
 		return "", fmt.Errorf("刷新 Statsig metaContent: %w", refreshErr)
 	}
@@ -159,8 +169,19 @@ func (s *statsigSigner) freshSignature(ctx context.Context, baseURL, signerURL, 
 	return signature, nil
 }
 
+func (s *statsigSigner) metaContent(ctx context.Context, baseURL, token string, lease *infraegress.Lease, pagePath string) (string, error) {
+	if strings.TrimSpace(pagePath) == "" || s.fetchMetaForPath == nil {
+		return s.fetchMeta(ctx, baseURL, token, lease)
+	}
+	return s.fetchMetaForPath(ctx, baseURL, token, lease, pagePath)
+}
+
 func (s *statsigSigner) Invalidate(baseURL, signerURL, method, target string) {
-	key, _, err := statsigSignatureKey(baseURL, signerURL, method, target)
+	s.InvalidateForPage(baseURL, signerURL, method, target, "")
+}
+
+func (s *statsigSigner) InvalidateForPage(baseURL, signerURL, method, target, pagePath string) {
+	key, _, err := statsigSignatureKeyForPage(baseURL, signerURL, method, target, pagePath)
 	if err != nil {
 		return
 	}
@@ -214,6 +235,10 @@ func (s *statsigSigner) store(key, value string, expiresAt, now time.Time) {
 }
 
 func statsigSignatureKey(baseURL, signerURL, method, target string) (string, string, error) {
+	return statsigSignatureKeyForPage(baseURL, signerURL, method, target, "")
+}
+
+func statsigSignatureKeyForPage(baseURL, signerURL, method, target, pagePath string) (string, string, error) {
 	parsed, err := url.Parse(target)
 	if err != nil {
 		return "", "", fmt.Errorf("解析 Statsig 目标地址: %w", err)
@@ -223,7 +248,7 @@ func statsigSignatureKey(baseURL, signerURL, method, target string) (string, str
 		path = "/"
 	}
 	method = strings.ToUpper(strings.TrimSpace(method))
-	return strings.TrimRight(baseURL, "/") + "\x00" + strings.TrimSpace(signerURL) + "\x00" + method + "\x00" + path, path, nil
+	return strings.TrimRight(baseURL, "/") + "\x00" + strings.TrimSpace(signerURL) + "\x00" + method + "\x00" + path + "\x00" + strings.TrimSpace(pagePath), path, nil
 }
 
 func (s *statsigSigner) requestSignature(ctx context.Context, endpoint, method, path, metaContent string) (string, error) {
@@ -276,6 +301,25 @@ func fetchStatsigMetaContent(ctx context.Context, baseURL, token string, lease *
 		return "", fmt.Errorf("Statsig 获取缺少出口租约")
 	}
 	return fetchStatsigMetaContentWithDo(ctx, baseURL, token, lease, lease.Do)
+}
+
+func fetchStatsigMetaContentForPath(ctx context.Context, baseURL, token string, lease *infraegress.Lease, pagePath string) (string, error) {
+	if lease == nil {
+		return "", fmt.Errorf("Statsig 获取缺少出口租约")
+	}
+	return fetchStatsigMetaContentForPathWithDo(ctx, baseURL, token, lease, pagePath, lease.Do)
+}
+
+func fetchStatsigMetaContentForPathWithDo(ctx context.Context, baseURL, token string, lease *infraegress.Lease, pagePath string, do func(*http.Request) (*http.Response, error)) (string, error) {
+	pagePath = "/" + strings.TrimLeft(strings.TrimSpace(pagePath), "/")
+	response, err := fetchStatsigMetaResponse(ctx, baseURL, token, lease, pagePath, do)
+	if err != nil {
+		return "", err
+	}
+	if response.statusCode < 200 || response.statusCode >= 300 {
+		return "", statsigMetaStatusError(pagePath, response.statusCode)
+	}
+	return extractStatsigMetaContent(response.body)
 }
 
 func fetchStatsigMetaContentWithDo(ctx context.Context, baseURL, token string, lease *infraegress.Lease, do func(*http.Request) (*http.Response, error)) (string, error) {
@@ -419,6 +463,10 @@ func validStatsigID(value string) bool {
 }
 
 func (a *Adapter) applySignedStatsig(ctx context.Context, request *http.Request, token string, lease *infraegress.Lease) {
+	a.applySignedStatsigForPage(ctx, request, token, lease, "")
+}
+
+func (a *Adapter) applySignedStatsigForPage(ctx context.Context, request *http.Request, token string, lease *infraegress.Lease, pagePath string) {
 	if request == nil {
 		return
 	}
@@ -433,7 +481,7 @@ func (a *Adapter) applySignedStatsig(ctx context.Context, request *http.Request,
 	if a.statsig == nil {
 		return
 	}
-	value, source, err := a.statsig.Sign(ctx, cfg.BaseURL, cfg.StatsigSignerURL, token, lease, request.Method, request.URL.String())
+	value, source, err := a.statsig.SignForPage(ctx, cfg.BaseURL, cfg.StatsigSignerURL, token, lease, request.Method, request.URL.String(), pagePath)
 	if err == nil {
 		request.Header.Set("x-statsig-id", value)
 		if source == "refresh" {
@@ -476,9 +524,13 @@ func (a *Adapter) WarmStatsig(ctx context.Context, credential account.Credential
 }
 
 func (a *Adapter) invalidateSignedStatsig(method, target string) bool {
+	return a.invalidateSignedStatsigForPage(method, target, "")
+}
+
+func (a *Adapter) invalidateSignedStatsigForPage(method, target, pagePath string) bool {
 	cfg := a.config()
 	if cfg.StatsigMode == "url" && a.statsig != nil {
-		a.statsig.Invalidate(cfg.BaseURL, cfg.StatsigSignerURL, method, target)
+		a.statsig.InvalidateForPage(cfg.BaseURL, cfg.StatsigSignerURL, method, target, pagePath)
 		if parsed, err := url.Parse(target); err == nil {
 			a.log().Info("web_statsig_invalidated", "method", method, "path", parsed.EscapedPath())
 		}

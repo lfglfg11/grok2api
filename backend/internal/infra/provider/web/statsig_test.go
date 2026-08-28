@@ -65,6 +65,19 @@ func TestFetchStatsigMetaContentDoesNotFallbackWhenIndex404HasVerification(t *te
 	}
 }
 
+func TestFetchStatsigMetaContentForPathUsesImaginePage(t *testing.T) {
+	var path string
+	do := func(request *http.Request) (*http.Response, error) {
+		path = request.URL.Path
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`<html><head><meta name="grok-site-verification" content="imagine-meta"/></head></html>`)), Header: http.Header{}}, nil
+	}
+	lease := &infraegress.Lease{UserAgent: "test-agent"}
+	value, err := fetchStatsigMetaContentForPathWithDo(context.Background(), "https://grok.com", "sso-token", lease, "/imagine", do)
+	if err != nil || value != "imagine-meta" || path != "/imagine" {
+		t.Fatalf("value=%q path=%q err=%v", value, path, err)
+	}
+}
+
 func TestFetchStatsigMetaContentDoesNotFallbackWhenSuccessfulIndexHasNoVerification(t *testing.T) {
 	var paths []string
 	do := func(request *http.Request) (*http.Response, error) {
