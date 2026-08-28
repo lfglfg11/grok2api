@@ -1385,7 +1385,7 @@ func NormalizeProxyURL(value string) (string, error) {
 }
 
 func SanitizeCloudflareCookies(value string) string {
-	allowed := make([]string, 0, 4)
+	allowed := make([]string, 0, 5)
 	seen := make(map[string]struct{})
 	for part := range strings.SplitSeq(value, ";") {
 		name, cookieValue, ok := strings.Cut(strings.TrimSpace(part), "=")
@@ -1394,7 +1394,7 @@ func SanitizeCloudflareCookies(value string) string {
 		}
 		name = strings.TrimSpace(name)
 		lower := strings.ToLower(name)
-		if lower != "cf_clearance" && lower != "__cf_bm" && lower != "_cfuvid" && !strings.HasPrefix(lower, "cf_chl_") {
+		if lower != "cf_clearance" && lower != "__cf_bm" && lower != "_cfuvid" && lower != "grok_device_id" && !strings.HasPrefix(lower, "cf_chl_") {
 			continue
 		}
 		if _, exists := seen[lower]; exists {
@@ -1408,4 +1408,23 @@ func SanitizeCloudflareCookies(value string) string {
 		allowed = append(allowed, lower+"="+cookieValue)
 	}
 	return strings.Join(allowed, "; ")
+}
+
+// GrokDeviceCookie returns only the durable Grok browser identity from a
+// persisted account cookie set. Managed Clearance must keep using the egress
+// node's fresh Cloudflare cookies while still binding Imagine media to the
+// account's original browser device.
+func GrokDeviceCookie(value string) string {
+	for part := range strings.SplitSeq(value, ";") {
+		name, cookieValue, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if !ok || !strings.EqualFold(strings.TrimSpace(name), "grok_device_id") {
+			continue
+		}
+		cookieValue = strings.TrimSpace(cookieValue)
+		if cookieValue == "" || len(cookieValue) > maxCloudflareCookieBytes || strings.IndexFunc(cookieValue, func(character rune) bool { return character < 0x20 || character == 0x7f }) >= 0 {
+			return ""
+		}
+		return "grok_device_id=" + cookieValue
+	}
+	return ""
 }

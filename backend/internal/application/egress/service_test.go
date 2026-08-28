@@ -12,12 +12,22 @@ import (
 )
 
 func TestSanitizeCloudflareCookiesDropsControlsAndNonCloudflareValues(t *testing.T) {
-	value := SanitizeCloudflareCookies("CF_CLEARANCE=valid; __cf_bm=bad\r\nX-Leak: yes; sso=secret; cf_chl_test=ok")
-	if value != "cf_clearance=valid; cf_chl_test=ok" {
+	value := SanitizeCloudflareCookies("CF_CLEARANCE=valid; __cf_bm=bad\r\nX-Leak: yes; sso=secret; cf_chl_test=ok; grok_device_id=211883c5-8549-4f77-a0c2-7af1e0730df9")
+	if value != "cf_clearance=valid; cf_chl_test=ok; grok_device_id=211883c5-8549-4f77-a0c2-7af1e0730df9" {
 		t.Fatalf("sanitized cookies = %q", value)
 	}
 	if strings.Contains(strings.ToLower(value), "sso") || strings.Contains(value, "\r") || strings.Contains(value, "\n") {
 		t.Fatalf("unsafe cookie value = %q", value)
+	}
+}
+
+func TestGrokDeviceCookieExtractsOnlyDeviceIdentity(t *testing.T) {
+	value := GrokDeviceCookie("cf_clearance=clear; grok_device_id=211883c5-8549-4f77-a0c2-7af1e0730df9; x-userid=drop")
+	if value != "grok_device_id=211883c5-8549-4f77-a0c2-7af1e0730df9" {
+		t.Fatalf("device cookie = %q", value)
+	}
+	if value := GrokDeviceCookie("grok_device_id=bad\r\nvalue"); value != "" {
+		t.Fatalf("invalid device cookie = %q", value)
 	}
 }
 

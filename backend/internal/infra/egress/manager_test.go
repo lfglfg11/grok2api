@@ -1206,12 +1206,12 @@ func TestAcquireCredentialUsesConfiguredFixedFallbackWhenBoundNodeIsUnavailable(
 	}
 }
 
-func TestFlareSolverrModeIgnoresCredentialCookie(t *testing.T) {
+func TestFlareSolverrModeUsesSolverClearanceAndCredentialDevice(t *testing.T) {
 	cipher, err := security.NewCipher("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 	if err != nil {
 		t.Fatal(err)
 	}
-	credentialCookie, err := cipher.Encrypt("cf_clearance=imported-account")
+	credentialCookie, err := cipher.Encrypt("cf_clearance=imported-account; grok_device_id=211883c5-8549-4f77-a0c2-7af1e0730df9")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1230,7 +1230,7 @@ func TestFlareSolverrModeIgnoresCredentialCookie(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer lease.Release()
-	if solver.calls != 1 || lease.CFCookies != "cf_clearance=value-1" {
+	if solver.calls != 1 || lease.CFCookies != "cf_clearance=value-1; grok_device_id=211883c5-8549-4f77-a0c2-7af1e0730df9" {
 		t.Fatalf("solver calls=%d lease cookie=%q", solver.calls, lease.CFCookies)
 	}
 }

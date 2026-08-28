@@ -1114,12 +1114,19 @@ func (m *Manager) leaseForNode(ctx context.Context, scope domain.Scope, affinity
 
 func (m *Manager) leaseForNodeWithOptions(ctx context.Context, scope domain.Scope, affinity, encryptedCredentialCookies string, managedClearance bool, selected domain.Node, options clientOptions) (*Lease, bool, error) {
 	credentialCookies := ""
-	if !managedClearance && usesBrowserClearance(scope) && strings.TrimSpace(encryptedCredentialCookies) != "" {
+	credentialDeviceCookie := ""
+	if usesBrowserClearance(scope) && strings.TrimSpace(encryptedCredentialCookies) != "" {
 		decryptedCookies, decryptErr := m.cipher.Decrypt(encryptedCredentialCookies)
 		if decryptErr != nil {
-			return nil, true, decryptErr
+			if !managedClearance {
+				return nil, true, decryptErr
+			}
+		} else {
+			credentialDeviceCookie = application.GrokDeviceCookie(decryptedCookies)
+			if !managedClearance {
+				credentialCookies = application.SanitizeCloudflareCookies(decryptedCookies)
+			}
 		}
-		credentialCookies = application.SanitizeCloudflareCookies(decryptedCookies)
 	}
 	proxyURL, err := m.cipher.Decrypt(selected.EncryptedProxyURL)
 	if err != nil {
@@ -1175,6 +1182,9 @@ func (m *Manager) leaseForNodeWithOptions(ctx context.Context, scope domain.Scop
 		if err != nil {
 			return nil, false, err
 		}
+		if credentialDeviceCookie != "" {
+			cookies = mergeCookie(cookies, credentialDeviceCookie)
+		}
 	}
 	// Derive identity independently of the current toggle. clientFor applies one
 	// authoritative toggle snapshot, so enabling isolation between these two
@@ -1195,6 +1205,27 @@ func (m *Manager) leaseForNodeWithOptions(ctx context.Context, scope domain.Scop
 			m.decrementInflight(selected.ID)
 		})
 	}}, true, nil
+}
+
+func mergeCookie(base, addition string) string {
+	additionName, _, ok := strings.Cut(strings.TrimSpace(addition), "=")
+	if !ok || strings.TrimSpace(additionName) == "" {
+		return strings.TrimSpace(base)
+	}
+	parts := make([]string, 0, 8)
+	for part := range strings.SplitSeq(base, ";") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		name, _, hasValue := strings.Cut(part, "=")
+		if hasValue && strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(additionName)) {
+			continue
+		}
+		parts = append(parts, part)
+	}
+	parts = append(parts, strings.TrimSpace(addition))
+	return strings.Join(parts, "; ")
 }
 
 // Console assets are served from public media hosts. They still need the

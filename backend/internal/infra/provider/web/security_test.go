@@ -11,13 +11,13 @@ import (
 )
 
 var forbiddenBrowserIdentityFields = []string{
-	"grok_device_id", "x-anonuserid", "x-userid", "x-challenge", "x-signature",
+	"x-anonuserid", "x-userid", "x-challenge", "x-signature",
 }
 
-func TestCloudflareCookieWhitelistDropsBrowserIdentityFields(t *testing.T) {
+func TestCloudflareCookieWhitelistPreservesGrokDeviceIdentity(t *testing.T) {
 	raw := "cf_clearance=clear; __cf_bm=bm; _cfuvid=uv; cf_chl_2=challenge; grok_device_id=device; x-anonuserid=anon; x-userid=user; x-challenge=c; x-signature=s; unrelated=value"
 	sanitized := application.SanitizeCloudflareCookies(raw)
-	for _, expected := range []string{"cf_clearance=clear", "__cf_bm=bm", "_cfuvid=uv", "cf_chl_2=challenge"} {
+	for _, expected := range []string{"cf_clearance=clear", "__cf_bm=bm", "_cfuvid=uv", "cf_chl_2=challenge", "grok_device_id=device"} {
 		if !strings.Contains(sanitized, expected) {
 			t.Fatalf("sanitized cookies missing %q: %s", expected, sanitized)
 		}
@@ -58,16 +58,25 @@ func TestRuntimeIdentityCookiesAreAddedOnlyAfterSanitization(t *testing.T) {
 	const userID = "497f19f8-49d4-458a-bee4-43ec3dcaf8ca"
 	lease := &infraegress.Lease{UserAgent: "test-agent", CFCookies: "cf_clearance=clear; x-userid=untrusted; grok_device_id=untrusted-device"}
 	headers := buildHeaders("test-sso", lease, "application/json")
-	if strings.Contains(headers.Get("Cookie"), "untrusted") {
-		t.Fatalf("stored browser identity leaked before runtime binding: %q", headers.Get("Cookie"))
+	if strings.Contains(headers.Get("Cookie"), "x-userid=untrusted") {
+		t.Fatalf("stored user identity leaked before runtime binding: %q", headers.Get("Cookie"))
 	}
 	applyRuntimeIdentityCookies(headers, userID)
 	if !strings.Contains(headers.Get("Cookie"), "x-userid="+userID) {
 		t.Fatalf("runtime user identity missing: %q", headers.Get("Cookie"))
 	}
-	wantDeviceID := "grok_device_id=0589d823-dfbe-5c29-8584-9956bdcb7881"
+	wantDeviceID := "grok_device_id=untrusted-device"
 	if !strings.Contains(headers.Get("Cookie"), wantDeviceID) {
-		t.Fatalf("runtime device identity missing: %q", headers.Get("Cookie"))
+		t.Fatalf("stored device identity missing: %q", headers.Get("Cookie"))
+	}
+}
+
+func TestRuntimeIdentityCookiesDeriveDeviceForLegacyAccount(t *testing.T) {
+	const userID = "497f19f8-49d4-458a-bee4-43ec3dcaf8ca"
+	headers := buildHeaders("test-sso", &infraegress.Lease{UserAgent: "test-agent"}, "application/json")
+	applyRuntimeIdentityCookies(headers, userID)
+	if want := "grok_device_id=0589d823-dfbe-5c29-8584-9956bdcb7881"; !strings.Contains(headers.Get("Cookie"), want) {
+		t.Fatalf("derived legacy device identity missing: %q", headers.Get("Cookie"))
 	}
 }
 

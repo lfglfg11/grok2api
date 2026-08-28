@@ -276,7 +276,7 @@ When one public image model exposes both generation and edit routes, Chat Comple
 
 Web image edits use the current `mediaGenInput.imageToImage` protocol. Each uploaded `fileMetadataId` is sent through `inputAssets`, while the request also retains `kind=CONVERSATION_KIND_IMAGINE` and `responseMetadata.modelConfigOverride.modelMap.imageEditModel=imagine`, matching the current Grok web client. `image_edit_is_root_user_uploaded` is response-side asset metadata and must not be added to the request payload.
 
-Image-edit upload and generation requests also carry the same runtime identity cookies: the trusted, resolved `x-userid` plus a stable per-account `grok_device_id` UUID derived from it. The user ID comes from the trusted account record or Grok's `/api/auth/session` response on the selected Web lease; imported browser identity cookies remain rejected by the Cloudflare-cookie whitelist. This preserves the browser's user-to-asset binding without persisting or replaying captured identity cookies.
+Image-edit upload and generation requests also carry the same runtime identity cookies: the resolved `x-userid` plus a stable per-account `grok_device_id`. When an account is imported or updated with a browser-captured `grok_device_id`, both phases reuse that exact durable device identity; legacy accounts without one retain the deterministic UUID derived from `x-userid`. In managed Clearance mode, only the account device cookie is merged with the server-refreshed Cloudflare cookies, so FlareSolverr/on-demand renewal remains authoritative for `cf_clearance`.
 
 The two Web phases retain their captured browser contexts: upload uses the `/imagine` page, while the edit-generation request uses an `/imagine/post/<UUID>` Referer.
 

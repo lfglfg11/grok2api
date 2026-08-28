@@ -26,9 +26,10 @@ func buildHeaders(token string, lease *infraegress.Lease, contentType string) ht
 }
 
 // applyRuntimeIdentityCookies adds the authenticated account identity resolved
-// by this process and a stable per-account device UUID. Browser identity cookies
-// supplied through account imports stay blocked by SanitizeCloudflareCookies;
-// both runtime values are derived from the trusted, normalized session uid.
+// by this process. A browser-captured Grok device ID stored with the account is
+// preserved because Grok binds Imagine uploads and generation to that durable
+// browser identity. Legacy accounts without one retain the deterministic
+// per-account fallback.
 func applyRuntimeIdentityCookies(value http.Header, userID string) {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
@@ -38,8 +39,41 @@ func applyRuntimeIdentityCookies(value http.Header, userID string) {
 	if cookie != "" {
 		cookie += "; "
 	}
-	deviceID := uuid.NewSHA1(uuid.NameSpaceURL, []byte("grok2api:web-device:"+userID)).String()
+	deviceID := cookieValue(cookie, "grok_device_id")
+	if deviceID == "" {
+		deviceID = uuid.NewSHA1(uuid.NameSpaceURL, []byte("grok2api:web-device:"+userID)).String()
+	}
+	cookie = removeCookie(cookie, "grok_device_id")
+	if cookie != "" {
+		cookie += "; "
+	}
 	value.Set("Cookie", cookie+"grok_device_id="+deviceID+"; x-userid="+userID)
+}
+
+func cookieValue(cookie, target string) string {
+	for part := range strings.SplitSeq(cookie, ";") {
+		name, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if ok && strings.EqualFold(strings.TrimSpace(name), target) {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func removeCookie(cookie, target string) string {
+	parts := make([]string, 0, 8)
+	for part := range strings.SplitSeq(cookie, ";") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		name, _, ok := strings.Cut(part, "=")
+		if ok && strings.EqualFold(strings.TrimSpace(name), target) {
+			continue
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, "; ")
 }
 
 // applyAppHeaders 补齐真实浏览器同源 fetch 会携带的稳定请求头，不伪造 Sentry 或 Client Hints。
