@@ -1247,6 +1247,56 @@ func imageEditResultURLs(parsed *parsedChat, captured []byte) []string {
 	return result
 }
 
+func imageEditConversationResponseURLs(data []byte) ([]string, bool) {
+	var payload struct {
+		Responses []struct {
+			Sender             string   `json:"sender"`
+			QueryType          string   `json:"queryType"`
+			Model              string   `json:"model"`
+			GeneratedImageURLs []string `json:"generatedImageUrls"`
+			Assets             []struct {
+				Key              string `json:"key"`
+				IsModelGenerated bool   `json:"isModelGenerated"`
+				IsLatest         bool   `json:"isLatest"`
+			} `json:"fileAttachmentAssetMetadata"`
+		} `json:"responses"`
+	}
+	if json.Unmarshal(data, &payload) != nil || payload.Responses == nil {
+		return nil, false
+	}
+	for index := len(payload.Responses) - 1; index >= 0; index-- {
+		response := payload.Responses[index]
+		if !strings.EqualFold(strings.TrimSpace(response.Sender), "assistant") {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(response.QueryType), "imagine") &&
+			!strings.EqualFold(strings.TrimSpace(response.Model), "imagine-image-edit") {
+			continue
+		}
+		urls := make([]string, 0, len(response.GeneratedImageURLs))
+		for _, value := range response.GeneratedImageURLs {
+			value = absoluteAssetURL(value)
+			if value != "" && !containsString(urls, value) {
+				urls = append(urls, value)
+			}
+		}
+		if len(urls) > 0 {
+			return urls, true
+		}
+		for _, asset := range response.Assets {
+			if !asset.IsModelGenerated || !asset.IsLatest || strings.Contains(asset.Key, "/preview_image.") {
+				continue
+			}
+			value := absoluteAssetURL(asset.Key)
+			if value != "" && !containsString(urls, value) {
+				urls = append(urls, value)
+			}
+		}
+		return urls, true
+	}
+	return nil, true
+}
+
 type imageEditCaptureDiagnostics struct {
 	Frames                  int
 	RootUserUploaded        bool
@@ -1385,10 +1435,6 @@ func (a *Adapter) imageEditConversationResultURLs(
 			}
 			return nil, fmt.Errorf("Grok Web image edit responses returned HTTP %d", response.StatusCode)
 		}
-		parsed, parseErr := consumeUpstream(bytes.NewReader(body), nil)
-		if parseErr != nil {
-			return nil, parseErr
-		}
 		diagnostics := inspectImageEditCapture(body)
 		a.log().Info("web_image_edit_responses_capture",
 			"frames", diagnostics.Frames,
@@ -1398,6 +1444,24 @@ func (a *Adapter) imageEditConversationResultURLs(
 			"generated_urls", diagnostics.GeneratedURLs,
 			"models", diagnostics.Models,
 		)
+		if urls, recognized := imageEditConversationResponseURLs(body); recognized {
+			if len(urls) > 0 {
+				return urls, nil
+			}
+			if attempt+1 < mediaOutputAttempts {
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(350 * time.Millisecond):
+				}
+				continue
+			}
+			return nil, nil
+		}
+		parsed, parseErr := consumeUpstream(bytes.NewReader(body), nil)
+		if parseErr != nil {
+			return nil, parseErr
+		}
 		if urls := imageEditResultURLs(&parsed, body); len(urls) > 0 {
 			return urls, nil
 		}

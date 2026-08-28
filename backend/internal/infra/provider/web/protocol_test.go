@@ -1180,6 +1180,24 @@ func TestInspectImageEditCapture(t *testing.T) {
 	}
 }
 
+func TestImageEditConversationResponseURLsSelectsAssistantFinalImage(t *testing.T) {
+	fixture := []byte(`{"responses":[
+		{"sender":"human","model":"imagine-image-edit","generatedImageUrls":[],"fileAttachmentAssetMetadata":[{"key":"users/test/generated/input/image.jpg","isModelGenerated":false,"isLatest":true}]},
+		{"sender":"ASSISTANT","queryType":"imagine","model":"imagine-image-edit","generatedImageUrls":["users/test/generated/final/image.jpg"],"fileAttachmentAssetMetadata":[{"key":"users/test/generated/final/preview_image.jpg","isModelGenerated":true,"isLatest":true},{"key":"users/test/generated/final/image.jpg","isModelGenerated":true,"isLatest":true}]}
+	]}`)
+	urls, recognized := imageEditConversationResponseURLs(fixture)
+	if !recognized || !slices.Equal(urls, []string{"https://assets.grok.com/users/test/generated/final/image.jpg"}) {
+		t.Fatalf("recognized=%v urls=%#v", recognized, urls)
+	}
+}
+
+func TestImageEditConversationResponseURLsWaitsForAssistantResult(t *testing.T) {
+	urls, recognized := imageEditConversationResponseURLs([]byte(`{"responses":[{"sender":"human","model":"imagine-image-edit"}],"inflightResponses":["pending"]}`))
+	if !recognized || len(urls) != 0 {
+		t.Fatalf("recognized=%v urls=%#v", recognized, urls)
+	}
+}
+
 func TestWebMediaStreamErrorRedactsSensitiveValues(t *testing.T) {
 	err := webMediaStreamError(map[string]any{
 		"message": "Bearer sensitive-token from owner@example.com at https://grok.com/private?token=secret",
