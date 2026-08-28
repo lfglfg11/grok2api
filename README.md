@@ -279,6 +279,8 @@ Web image edits use the current `mediaGenInput.imageToImage` protocol. Each uplo
 Image-edit session creation keeps the browser-shaped `/imagine/post/{uuid}` Referer, while `conversations/new` currently uses the generic Web Statsig signing behavior aligned with upstream main. A structured code 7 response invalidates and refreshes only that generic signature; video Imagine requests retain their separate page-specific signing behavior.
 
 When the final conversation response contains multiple generated URLs, the adapter prefers the non-preview asset explicitly marked `isModelGenerated=true` and `isLatest=true` in `fileAttachmentAssetMetadata`. It falls back to `generatedImageUrls` only when final asset metadata is unavailable, preventing an intermediate or stale image from being returned by `/v1/images/edits`.
+
+For troubleshooting Web image edits, the result-query diagnostic log records only candidate order and a short URL digest; it does not log complete media URLs.
 If attachment metadata is absent and several URLs are returned, the fallback picks the newest non-preview candidate from the end of the list.
 
 Image-edit Referers follow the visible SPA route: creation uses `/imagine/post/{post_id}`, and response polling uses the same page with its `conversation` query. Image edits currently use the generic Web Statsig signature behavior aligned with upstream main; a structured `403 code=7` invalidates and refreshes only that signature. Video Imagine requests retain their separate page-specific signing behavior.

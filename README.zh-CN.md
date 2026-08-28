@@ -544,6 +544,8 @@ make swagger
 
 ## 相关文档
 
+排查 Web 图生图时，结果查询诊断日志只记录候选顺序和短 URL 摘要哈希，不记录完整媒体 URL。
+
 - [English README](./README.md)
 - [后端说明](./backend/README.md)
 - [前端说明](./frontend/README.md)

@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"io"
+	"log/slog"
 	"math"
 	"mime/multipart"
 	"net/http"
@@ -1278,6 +1280,19 @@ func imageEditConversationResponseURLs(data []byte) ([]string, bool) {
 			!strings.EqualFold(strings.TrimSpace(response.Model), "imagine-image-edit") {
 			continue
 		}
+		urlSummary := make([]string, 0, len(response.GeneratedImageURLs))
+		for candidateIndex, raw := range response.GeneratedImageURLs {
+			value := strings.TrimSpace(raw)
+			if value == "" {
+				continue
+			}
+			urlSummary = append(urlSummary, fmt.Sprintf("%d:%s", candidateIndex, imageEditURLSummary(value)))
+		}
+		if len(urlSummary) > 0 {
+			// This diagnostic intentionally records only candidate order and a short
+			// digest, never the full asset URL or account-bound identifiers.
+			slog.Info("web_image_edit_response_candidates", "count", len(urlSummary), "candidates", urlSummary)
+		}
 		// The responses endpoint may keep several generatedImageUrls for one
 		// Imagine turn. The browser identifies the final deliverable through
 		// fileAttachmentAssetMetadata; prefer that explicit latest marker so an
@@ -1314,6 +1329,19 @@ func imageEditConversationResponseURLs(data []byte) ([]string, bool) {
 		return urls, true
 	}
 	return nil, true
+}
+
+func imageEditURLSummary(raw string) string {
+	value := strings.TrimSpace(raw)
+	parsed, err := url.Parse(value)
+	if err == nil {
+		value = parsed.Path
+	}
+	if len(value) > 96 {
+		value = value[len(value)-96:]
+	}
+	sum := sha256.Sum256([]byte(strings.TrimSpace(raw)))
+	return fmt.Sprintf("path=%s,sha256=%x", value, sum[:4])
 }
 
 type imageEditCaptureDiagnostics struct {
