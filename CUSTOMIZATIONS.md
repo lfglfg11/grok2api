@@ -9,7 +9,7 @@
 | 项目 | 提交 |
 | --- | --- |
 | 二开分支 | `video-image` |
-| 本文覆盖的最后一个业务二开提交 | 当前工作树：修复 Web 图片编辑根参考图标记 |
+| 本文覆盖的最后一个业务二开提交 | 当前工作树：增加 Web 图片编辑脱敏协议诊断 |
 | 最新上游合并提交 | `20473523` (`Merge branch 'main' into video-image`) |
 | 已合入的官方基线 | `62d2775c` (`Merge pull request #1009 from chenyme/gateway`) |
 | 记录时官方 `upstream/main` | `62d2775c` |
@@ -37,6 +37,7 @@ git log --reverse --oneline main..video-image
 | 固定 2K 图片别名 | 三个 `-2k` 模型别名在 Chat Completions、Images Generations、Images Edits 中都无条件将分辨率改为 `2k` | `domain/model/media_alias.go`、`gateway/image.go`、`console/chat_media.go` |
 | Chat 图片能力选路 | 同一公开模型同时具有生成/编辑能力时，Chat/Responses 明确选择图片生成路由，避免纯文本请求误入 `image_edit` | `gateway/service.go`、`web/image.go` |
 | Chat 图生图兼容 | Imagine 2.0 当前用户消息带图片时由 Web 适配层转入既有编辑链路；纯文本仍走生成链路 | `web/image.go` |
+| Web 图生图协议诊断 | 解析上传响应的 `fileSource`，并只记录根参考图识别、引用数量和生成 URL 数量等脱敏信号 | `web/attachments.go`、`web/image.go`、`web/protocol_test.go` |
 | multi-agent 默认工具 | 所有名称中含独立 `multi-agent` 段的 Console 模型默认补齐代码解释器、Web 搜索和 X 搜索 | `console/normalize.go` |
 | 搜索/工具进度透传 | Responses 的服务端工具事件转换为 Chat Completions 的 `reasoning_content` 流 | `conversation/chat_server_tools.go`、`conversation/stream.go` |
 
@@ -267,6 +268,7 @@ git merge upstream/main
 - 多参考图视频最长仍为 10 秒。
 - 远程图片下载保留 SSRF、重定向、大小、MIME、凭据隔离保护。
 - Images Generations 带 `image/images` 时仍自动进入编辑流程。
+- Web 图片编辑上传继续发送 `IMAGINE_SELF_UPLOAD_FILE_SOURCE`，并使用响应中的 `fileMetadataId` 作为 `inputAssets`；诊断日志不得记录资产 ID、URL、图片内容、Cookie 或 token。
 - 三个 `-2k` 模型在三类兼容接口中仍强制 2K，四个 OpenAI 图片别名映射正确；Imagine 2.0 Web 最终成品仍执行服务端 2K 放大，且上游请求不得重新出现像素/`size` 字段。
 - 同名图片生成/编辑路由并存时，Chat/Responses 仍选择 `CapabilityImage`；不得依赖目录顺序或会话目标随机排序，`/v1/images/edits` 也不能因此失效。
 - 未来 `*-multi-agent-*` 模型仍补齐三个工具，`tool_choice: none` 仍能关闭。
@@ -339,7 +341,8 @@ RikkaHub 手工验证请求：
 | `65ceaabe` | Web Imagine 2K 最终成品高质量放大，并移除上游像素/`size` 实验字段 |
 | `394b996d` | 修复 Chat 图片模型误选编辑路由，并保留 `-2k` 固定分辨率契约 |
 | `ad01c7c1` | 修复 Imagine 2.0 Chat 图生图分流，并将 Web 2K 本地成品调整为约 4.2MP 等比尺寸 |
-| 本次修复 | Web Imagine 图片编辑载荷重新与当前网页协议对齐：保留 Imagine 编辑模式字段，移除误加的响应侧 `image_edit_is_root_user_uploaded`，并为上游拒绝日志增加脱敏后的错误码与消息 |
+| `b097cb03` | Web Imagine 图片编辑载荷重新与当前网页协议对齐：保留 Imagine 编辑模式字段，移除误加的响应侧 `image_edit_is_root_user_uploaded`，并为上游拒绝日志增加脱敏后的错误码与消息 |
+| 本次诊断 | 解析上传响应的 `fileSource`，并输出不含凭据、资产标识和 URL 的根参考图识别诊断，定位上游是否真正绑定 `inputAssets` |
 
 ## 8. 维护原则
 

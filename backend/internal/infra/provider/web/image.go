@@ -962,6 +962,13 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 		if uploaded.MetadataID == "" {
 			return nil, fmt.Errorf("上传图片成功但上游未返回 fileMetadataId")
 		}
+		a.log().Info("web_image_edit_upload_resolved",
+			"file_source", uploaded.FileSource,
+			"metadata_present", uploaded.MetadataID != "",
+			"uri_present", uploaded.URI != "",
+			"mime_type", image.MIMEType,
+			"input_bytes", len(image.Data),
+		)
 		assets = append(assets, uploaded.MetadataID)
 	}
 	payload := buildImageEditPayload(request.Prompt, assets, ratio)
@@ -993,6 +1000,7 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 	if consumeErr != nil {
 		return nil, consumeErr
 	}
+	a.logImageEditCaptureDiagnostics(capture.Bytes())
 	urls := imageEditResultURLs(&parsed, capture.Bytes())
 	if len(urls) == 0 {
 		return jsonProviderResponse(http.StatusBadGateway, map[string]any{"error": map[string]any{
@@ -1113,6 +1121,7 @@ func (a *Adapter) streamImageEdit(
 		_ = writer.CloseWithError(consumeErr)
 		return
 	}
+	a.logImageEditCaptureDiagnostics(capture.Bytes())
 	urls := imageEditResultURLs(&parsed, capture.Bytes())
 	if len(urls) == 0 {
 		err := fmt.Errorf("上游未返回可用的编辑图片")
@@ -1199,6 +1208,78 @@ func imageEditResultURLs(parsed *parsedChat, captured []byte) []string {
 		result = append(result, value)
 	}
 	return result
+}
+
+type imageEditCaptureDiagnostics struct {
+	Frames                  int
+	RootUserUploaded        bool
+	ResolvedImageReferences int
+	InputAssets             int
+	GeneratedURLs           int
+}
+
+func inspectImageEditCapture(data []byte) imageEditCaptureDiagnostics {
+	result := imageEditCaptureDiagnostics{}
+	_ = consumeJSONObjects(bytes.NewReader(data), 8<<20, func(frame []byte) error {
+		result.Frames++
+		var value any
+		if json.Unmarshal(frame, &value) == nil {
+			inspectImageEditCaptureValue(value, &result)
+		}
+		return nil
+	})
+	result.GeneratedURLs = len(extractCapturedImageURLs(data))
+	return result
+}
+
+func inspectImageEditCaptureValue(value any, result *imageEditCaptureDiagnostics) {
+	switch current := value.(type) {
+	case map[string]any:
+		for key, nested := range current {
+			switch key {
+			case "isRootUserUploaded":
+				if flag, ok := nested.(bool); ok && flag {
+					result.RootUserUploaded = true
+				}
+			case "image_edit_is_root_user_uploaded":
+				if strings.EqualFold(strings.TrimSpace(fmt.Sprint(nested)), "true") {
+					result.RootUserUploaded = true
+				}
+			case "resolvedImageReferences":
+				if items, ok := nested.([]any); ok && len(items) > result.ResolvedImageReferences {
+					result.ResolvedImageReferences = len(items)
+				}
+			case "inputAssets":
+				if items, ok := nested.([]any); ok && len(items) > result.InputAssets {
+					result.InputAssets = len(items)
+				}
+			}
+			inspectImageEditCaptureValue(nested, result)
+		}
+	case []any:
+		for _, nested := range current {
+			inspectImageEditCaptureValue(nested, result)
+		}
+	case string:
+		trimmed := strings.TrimSpace(current)
+		if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+			var nested any
+			if json.Unmarshal([]byte(trimmed), &nested) == nil {
+				inspectImageEditCaptureValue(nested, result)
+			}
+		}
+	}
+}
+
+func (a *Adapter) logImageEditCaptureDiagnostics(data []byte) {
+	diagnostics := inspectImageEditCapture(data)
+	a.log().Info("web_image_edit_capture",
+		"frames", diagnostics.Frames,
+		"root_user_uploaded", diagnostics.RootUserUploaded,
+		"resolved_image_references", diagnostics.ResolvedImageReferences,
+		"input_assets", diagnostics.InputAssets,
+		"generated_urls", diagnostics.GeneratedURLs,
+	)
 }
 
 type boundedCapture struct {
@@ -1456,9 +1537,10 @@ func decodeDirectFileUploadResponse(source io.Reader) (uploadedFile, error) {
 		UploadID      string          `json:"uploadId"`
 		TerminalError json.RawMessage `json:"terminalError"`
 		FileMetadata  struct {
-			ID      string `json:"fileMetadataId"`
-			FileID  string `json:"fileId"`
-			FileURI string `json:"fileUri"`
+			ID         string `json:"fileMetadataId"`
+			FileID     string `json:"fileId"`
+			FileURI    string `json:"fileUri"`
+			FileSource string `json:"fileSource"`
 		} `json:"fileMetadata"`
 	}
 	if err := json.NewDecoder(source).Decode(&value); err != nil {
@@ -1485,7 +1567,7 @@ func decodeDirectFileUploadResponse(source io.Reader) (uploadedFile, error) {
 	if fileID == "" && fileURI == "" {
 		return uploadedFile{}, fmt.Errorf("V2 上传文件成功但上游未返回完整文件标识")
 	}
-	return uploadedFile{ID: fileID, MetadataID: metadataID, URI: fileURI}, nil
+	return uploadedFile{ID: fileID, MetadataID: metadataID, URI: fileURI, FileSource: strings.TrimSpace(value.FileMetadata.FileSource)}, nil
 }
 
 func directFileUploadTerminalError(raw json.RawMessage) bool {

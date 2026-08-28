@@ -40,6 +40,7 @@ type uploadedFile struct {
 	// Imagine image-edit requests require this exact identifier in inputAssets.
 	MetadataID string
 	URI        string
+	FileSource string
 }
 
 type remoteImageTarget struct {

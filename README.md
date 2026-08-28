@@ -276,6 +276,8 @@ When one public image model exposes both generation and edit routes, Chat Comple
 
 Web image edits use the current `mediaGenInput.imageToImage` protocol. Each uploaded `fileMetadataId` is sent through `inputAssets`, while the request also retains `kind=CONVERSATION_KIND_IMAGINE` and `responseMetadata.modelConfigOverride.modelMap.imageEditModel=imagine`, matching the current Grok web client. `image_edit_is_root_user_uploaded` is response-side asset metadata and must not be added to the request payload.
 
+For troubleshooting upstream reference binding, the Web adapter parses the normalized upload `fileSource` and emits privacy-safe image-edit diagnostics: whether upstream marked the source as root-user-uploaded, and counts of resolved references, echoed input assets, and generated URLs. These logs never include asset IDs, URLs, image bytes, cookies, or tokens.
+
 ### Grok Console
 
 Console uses the catalog built into the current release. Conversation forwarding is stateless, while image, video, and voice use the standard xAI resource APIs.

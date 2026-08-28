@@ -1131,9 +1131,9 @@ func TestBuildDirectFileUploadBodyOmitsSourceForChat(t *testing.T) {
 func TestDecodeDirectFileUploadResponse(t *testing.T) {
 	uploaded, err := decodeDirectFileUploadResponse(strings.NewReader(`{
 		"uploadId":"upload-1",
-		"fileMetadata":{"fileMetadataId":"metadata-1","fileUri":"users/test/reference/content"}
+		"fileMetadata":{"fileMetadataId":"metadata-1","fileUri":"users/test/reference/content","fileSource":"SELF_UPLOAD_FILE_SOURCE"}
 	}`))
-	if err != nil || uploaded.ID != "metadata-1" || uploaded.MetadataID != "metadata-1" || uploaded.URI != "https://assets.grok.com/users/test/reference/content" {
+	if err != nil || uploaded.ID != "metadata-1" || uploaded.MetadataID != "metadata-1" || uploaded.URI != "https://assets.grok.com/users/test/reference/content" || uploaded.FileSource != "SELF_UPLOAD_FILE_SOURCE" {
 		t.Fatalf("uploaded=%#v err=%v", uploaded, err)
 	}
 	uploaded, err = decodeDirectFileUploadResponse(strings.NewReader(`{"uploadId":"upload-1","terminalError":{}}`))
@@ -1149,6 +1149,19 @@ func TestDecodeDirectFileUploadResponse(t *testing.T) {
 	}
 	if _, err := decodeDirectFileUploadResponse(strings.NewReader(`{"fileMetadata":{}}`)); err == nil {
 		t.Fatal("response without any file identifier was accepted")
+	}
+}
+
+func TestInspectImageEditCapture(t *testing.T) {
+	diagnostics := inspectImageEditCapture([]byte(`{
+		"result":{"response":{"metadata":{"modelConfigOverride":{"modelMap":{"imageEditModelConfig":{
+			"isRootUserUploaded":true,
+			"resolvedImageReferences":["https://assets.grok.com/users/test/reference/content"]
+		}}},"mediaGenInput":{"imageToImage":{"inputAssets":["metadata-1"]}}},
+		"streamingImageGenerationResponse":{"imageUrl":"users/test/generated/output/image.jpg","progress":100}}}
+	}`))
+	if diagnostics.Frames != 1 || !diagnostics.RootUserUploaded || diagnostics.ResolvedImageReferences != 1 || diagnostics.InputAssets != 1 || diagnostics.GeneratedURLs != 1 {
+		t.Fatalf("diagnostics=%#v", diagnostics)
 	}
 }
 
