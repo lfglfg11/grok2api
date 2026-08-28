@@ -1186,6 +1186,20 @@ func TestInspectImageEditCapture(t *testing.T) {
 	}
 }
 
+func TestInspectImageEditCaptureRecordsFinalAssetMetadata(t *testing.T) {
+	diagnostics := inspectImageEditCapture([]byte(`{"responses":[{"sender":"assistant","queryType":"imagine","model":"imagine-image-edit","fileAttachmentAssetMetadata":[
+		{"key":"users/test/generated/final/preview_image.jpg","isModelGenerated":true,"isLatest":true,"fileSource":"IMAGINE_GENERATED_FILE_SOURCE","width":512,"height":512},
+		{"key":"users/test/generated/final/image.jpg","isModelGenerated":true,"isLatest":true,"fileSource":"IMAGINE_GENERATED_FILE_SOURCE","width":1024,"height":1024}
+	]}]}`))
+	if diagnostics.FinalAssets != 1 || diagnostics.PreviewAssets != 1 {
+		t.Fatalf("asset counts=%#v", diagnostics)
+	}
+	if !slices.Equal(diagnostics.GeneratedFileSources, []string{"IMAGINE_GENERATED_FILE_SOURCE"}) ||
+		!slices.Equal(diagnostics.OutputWidths, []int{512, 1024}) || !slices.Equal(diagnostics.OutputHeights, []int{512, 1024}) {
+		t.Fatalf("asset metadata=%#v", diagnostics)
+	}
+}
+
 func TestImageEditConversationResponseURLsSelectsAssistantFinalImage(t *testing.T) {
 	fixture := []byte(`{"responses":[
 		{"sender":"human","model":"imagine-image-edit","generatedImageUrls":[],"fileAttachmentAssetMetadata":[{"key":"users/test/generated/input/image.jpg","isModelGenerated":false,"isLatest":true}]},

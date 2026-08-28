@@ -1386,6 +1386,15 @@ func appendUniqueString(values []string, value string) []string {
 	return append(values, value)
 }
 
+func appendUniqueInt(values []int, value int) []int {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
+}
+
 func containsString(values []string, value string) bool {
 	for _, existing := range values {
 		if existing == value {

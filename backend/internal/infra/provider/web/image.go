@@ -1259,6 +1259,9 @@ func imageEditConversationResponseURLs(data []byte) ([]string, bool) {
 				Key              string `json:"key"`
 				IsModelGenerated bool   `json:"isModelGenerated"`
 				IsLatest         bool   `json:"isLatest"`
+				FileSource       string `json:"fileSource"`
+				Width            int    `json:"width"`
+				Height           int    `json:"height"`
 			} `json:"fileAttachmentAssetMetadata"`
 		} `json:"responses"`
 	}
@@ -1313,6 +1316,11 @@ type imageEditCaptureDiagnostics struct {
 	InputAssets             int
 	GeneratedURLs           int
 	Models                  []string
+	FinalAssets             int
+	PreviewAssets           int
+	GeneratedFileSources    []string
+	OutputWidths            []int
+	OutputHeights           []int
 }
 
 func inspectImageEditCapture(data []byte) imageEditCaptureDiagnostics {
@@ -1355,6 +1363,33 @@ func inspectImageEditCaptureValue(value any, result *imageEditCaptureDiagnostics
 				if items, ok := nested.([]any); ok && len(items) > result.InputAssets {
 					result.InputAssets = len(items)
 				}
+			case "fileAttachmentAssetMetadata":
+				if items, ok := nested.([]any); ok {
+					for _, item := range items {
+						asset, ok := item.(map[string]any)
+						if !ok {
+							continue
+						}
+						latest, _ := asset["isLatest"].(bool)
+						generated, _ := asset["isModelGenerated"].(bool)
+						keyValue, _ := asset["key"].(string)
+						if latest && generated && !strings.Contains(keyValue, "/preview_image.") {
+							result.FinalAssets++
+						}
+						if strings.Contains(keyValue, "/preview_image.") {
+							result.PreviewAssets++
+						}
+						if source, _ := asset["fileSource"].(string); strings.TrimSpace(source) != "" && len(result.GeneratedFileSources) < 8 {
+							result.GeneratedFileSources = appendUniqueString(result.GeneratedFileSources, strings.TrimSpace(source))
+						}
+						if width, ok := numberAsInt(asset["width"]); ok && width > 0 && len(result.OutputWidths) < 8 {
+							result.OutputWidths = appendUniqueInt(result.OutputWidths, width)
+						}
+						if height, ok := numberAsInt(asset["height"]); ok && height > 0 && len(result.OutputHeights) < 8 {
+							result.OutputHeights = appendUniqueInt(result.OutputHeights, height)
+						}
+					}
+				}
 			}
 			inspectImageEditCaptureValue(nested, result)
 		}
@@ -1382,6 +1417,11 @@ func (a *Adapter) logImageEditCaptureDiagnostics(data []byte) {
 		"input_assets", diagnostics.InputAssets,
 		"generated_urls", diagnostics.GeneratedURLs,
 		"models", diagnostics.Models,
+		"final_assets", diagnostics.FinalAssets,
+		"preview_assets", diagnostics.PreviewAssets,
+		"generated_file_sources", diagnostics.GeneratedFileSources,
+		"output_widths", diagnostics.OutputWidths,
+		"output_heights", diagnostics.OutputHeights,
 	)
 }
 
