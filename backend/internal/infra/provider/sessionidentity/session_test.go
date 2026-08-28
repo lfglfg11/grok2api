@@ -2,10 +2,28 @@ package sessionidentity
 
 import (
 	"errors"
+	"net/http"
 	"testing"
 
+	infraegress "github.com/chenyme/grok2api/backend/internal/infra/egress"
 	"github.com/chenyme/grok2api/backend/internal/infra/provider"
 )
+
+func TestMergeSessionDeviceCookie(t *testing.T) {
+	lease := &infraegress.Lease{CFCookies: "cf_clearance=clear; grok_device_id=old; x=1"}
+	mergeSessionDeviceCookie(lease, []*http.Cookie{{Name: "grok_device_id", Value: "new-device"}})
+	if got, want := lease.CFCookies, "cf_clearance=clear; x=1; grok_device_id=new-device"; got != want {
+		t.Fatalf("cookies = %q, want %q", got, want)
+	}
+}
+
+func TestMergeSessionDeviceCookieIgnoresUnrelatedCookies(t *testing.T) {
+	lease := &infraegress.Lease{CFCookies: "cf_clearance=clear"}
+	mergeSessionDeviceCookie(lease, []*http.Cookie{{Name: "foo", Value: "bar"}, {Name: "grok_device_id", Value: ""}})
+	if got, want := lease.CFCookies, "cf_clearance=clear"; got != want {
+		t.Fatalf("cookies = %q, want %q", got, want)
+	}
+}
 
 func TestParseBlockedSessionIsUnauthorized(t *testing.T) {
 	t.Parallel()
