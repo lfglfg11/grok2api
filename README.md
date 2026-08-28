@@ -274,6 +274,8 @@ Web Imagine generation forwards only the protocol-supported `aspect_ratio` and `
 
 When one public image model exposes both generation and edit routes, Chat Completions and Responses explicitly select the image-generation route first. A text-only Imagine 2.0 request generates an image, while an Imagine 2.0 request whose current user message contains image attachments is dispatched by the Web adapter to the existing image-edit flow. Images Edits continues to select the edit capability independently. Fixed `-2k` aliases are recovered from the original public model name in Chat requests, so generation and edit responses retain the same 2K post-processing contract.
 
+Web image edits preserve the current Imagine edit-mode markers in addition to `mediaGenInput.imageToImage.inputAssets`: `kind=CONVERSATION_KIND_IMAGINE` and `responseMetadata.modelConfigOverride.modelMap.imageEditModel=imagine`. Removing those markers can make upstream return HTTP 200 while silently treating a reference-image request as ordinary text-to-image generation.
+
 ### Grok Console
 
 Console uses the catalog built into the current release. Conversation forwarding is stateless, while image, video, and voice use the standard xAI resource APIs.

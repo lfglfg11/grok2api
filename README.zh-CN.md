@@ -275,6 +275,8 @@ Web Imagine 生成只向上游发送协议支持的 `aspect_ratio` 和 `resoluti
 
 当同一个公开图片模型同时具有生成和编辑路由时，Chat Completions/Responses 会先明确选择图片生成路由：Imagine 2.0 的纯文本请求继续生图；若当前用户消息带图片附件，Web 适配层会转入既有图片编辑流程。Images Edits 仍按图片编辑能力独立选路。固定 `-2k` 别名会从 Chat 请求中的原始公开模型名恢复，因此生成和编辑响应都不会丢失 2K 后处理。
 
+Web 图片编辑除 `mediaGenInput.imageToImage.inputAssets` 外，还会保留当前 Imagine 编辑模式标记：`kind=CONVERSATION_KIND_IMAGINE` 和 `responseMetadata.modelConfigOverride.modelMap.imageEditModel=imagine`。若删除这些标记，上游可能仍返回 HTTP 200，却静默将参考图请求当成普通文生图，导致输出与原图无关。
+
 ### Grok Console
 
 Console 使用当前版本内置目录。对话为无状态转发；图片、视频和语音使用 xAI 标准资源接口。
