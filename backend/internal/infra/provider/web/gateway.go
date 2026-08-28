@@ -166,7 +166,11 @@ func (a *Adapter) resolveGatewayUserID(ctx context.Context, baseURL string, cred
 	if err != nil {
 		return "", fmt.Errorf("同步 Grok Web Gateway 用户身份: %w", err)
 	}
-	return normalizeGatewayUserID(identity.UserID)
+	userID, err := normalizeGatewayUserID(identity.UserID)
+	if err == nil && lease != nil {
+		lease.UserID = userID
+	}
+	return userID, err
 }
 
 // resolveImageEditUserID refreshes the authenticated Session identity before
@@ -177,6 +181,9 @@ func (a *Adapter) resolveImageEditUserID(ctx context.Context, baseURL string, cr
 	identity, err := sessionidentity.FetchWithLease(ctx, baseURL, token, lease, a.egress)
 	if err == nil {
 		if userID, normalizeErr := normalizeGatewayUserID(identity.UserID); normalizeErr == nil {
+			if lease != nil {
+				lease.UserID = userID
+			}
 			if stored, storedErr := normalizeGatewayUserID(credential.UserID); storedErr == nil && stored != userID {
 				a.log().Warn("web_image_edit_identity_refreshed", "stored_identity_changed", true)
 			}

@@ -391,6 +391,9 @@ func fetchStatsigMetaResponse(ctx context.Context, baseURL, token string, lease 
 	if lease != nil {
 		request.Header.Set("User-Agent", lease.UserAgent)
 		request.Header.Set("Cookie", infraegress.BuildSSOCookie(token, lease.CFCookies))
+		// The verification meta is account/page scoped in the browser. Reuse
+		// the same authenticated identity that will issue the media request.
+		applyRuntimeIdentityCookies(request.Header, lease.UserID)
 	}
 	response, err := do(request)
 	if err != nil {

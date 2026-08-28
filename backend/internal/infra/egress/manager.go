@@ -62,12 +62,16 @@ var errClientCacheInvalidated = errors.New("egress client cache invalidated")
 var errAccountConnectionIsolationDisabled = errors.New("egress account connection isolation disabled")
 
 type Lease struct {
-	NodeID           uint64
-	NodeName         string
-	Scope            domain.Scope
-	ProxyURL         string
-	UserAgent        string
-	CFCookies        string
+	NodeID    uint64
+	NodeName  string
+	Scope     domain.Scope
+	ProxyURL  string
+	UserAgent string
+	CFCookies string
+	// UserID is the authenticated Grok Web identity used when fetching
+	// page-bound verification metadata. It is populated from the credential
+	// and may be refreshed by the Web adapter after Session resolution.
+	UserID           string
 	client           requestClient
 	browser          *browserClient
 	sticky           bool
@@ -478,6 +482,9 @@ func (m *Manager) AcquireCredential(ctx context.Context, scope domain.Scope, cre
 	ctx = WithAccountIdentity(ctx, identity)
 	ctx = WithEgressNode(ctx, credential.EgressNodeID)
 	lease, _, err := m.acquire(ctx, scope, strconv.FormatUint(credential.ID, 10), true, credential.EncryptedCloudflareCookie, credential.EgressNodeID)
+	if lease != nil {
+		lease.UserID = strings.TrimSpace(credential.UserID)
+	}
 	return lease, err
 }
 
