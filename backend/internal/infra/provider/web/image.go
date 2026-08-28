@@ -983,7 +983,10 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 	}
 	payload := buildImageEditPayload(request.Prompt, assets, ratio)
 	postID := newRequestUUID()
-	response, err := a.postJSONWithReferer(ctx, cfg, lease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.ImageTimeoutSeconds)*time.Second, imageEditPostReferer(cfg.BaseURL, postID), userID, "")
+	// The Imagine SPA is initialized by the /imagine document. Its Statsig
+	// identity is page-bound, so sign the conversation request with the
+	// Imagine page metadata rather than the generic root-page metadata.
+	response, err := a.postJSONWithReferer(ctx, cfg, lease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.ImageTimeoutSeconds)*time.Second, imageEditPostReferer(cfg.BaseURL, postID), userID, imagineStatsigPagePath)
 	if err != nil {
 		return nil, err
 	}
