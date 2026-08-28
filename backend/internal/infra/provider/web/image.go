@@ -1012,10 +1012,14 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 	_ = response.Body.Close()
 	a.logImageEditCaptureDiagnostics(capture.Bytes())
 	urls := imageEditResultURLs(&parsed, capture.Bytes())
+	if len(urls) > 0 {
+		a.log().Info("web_image_edit_create_candidates", "count", len(urls), "candidates", imageEditURLSummaries(urls))
+	}
 	if parsed.ConversationID != "" {
 		if responseURLs, responseErr := a.imageEditConversationResultURLs(ctx, cfg, lease, token, userID, postID, parsed.ConversationID); responseErr != nil {
 			a.log().Warn("web_image_edit_responses_failed", "conversation_id_present", true, "error", responseErr)
 		} else if len(responseURLs) > 0 {
+			a.log().Info("web_image_edit_response_override", "create_count", len(urls), "response_count", len(responseURLs), "create_candidates", imageEditURLSummaries(urls), "response_candidates", imageEditURLSummaries(responseURLs))
 			urls = responseURLs
 		}
 	}
@@ -1342,6 +1346,14 @@ func imageEditURLSummary(raw string) string {
 	}
 	sum := sha256.Sum256([]byte(strings.TrimSpace(raw)))
 	return fmt.Sprintf("path=%s,sha256=%x", value, sum[:4])
+}
+
+func imageEditURLSummaries(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		result = append(result, imageEditURLSummary(value))
+	}
+	return result
 }
 
 type imageEditCaptureDiagnostics struct {
