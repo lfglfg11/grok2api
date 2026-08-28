@@ -273,6 +273,8 @@ Web 使用内置目录并按账号等级过滤；更高等级继承低等级模�
 
 Web Imagine 生成只向上游发送协议支持的 `aspect_ratio` 和 `resolution`。`size` 仍作为 OpenAI 兼容入参，但只在本地换算为宽高比；`size`、`width/height`、`imageWidth/imageHeight` 等像素字段绝不会转发给上游。真实测试确认，当前 Web 上游即使收到 `resolution=2k` 仍只返回约 1K 像素。因此，当模型为 `grok-imagine-image-2.0-2k` 或请求显式指定 `resolution=2k` 时，服务端会在最终成品存储及 URL/Base64 返回前使用 Catmull-Rom 高质量放大，从而在 Chat Completions、Images Generations、Images Edits 三个入口输出真实 2K 像素尺寸；这是服务端后处理，不是上游原生 2K。目标尺寸包括：1:1 为 `2048x2048`、2:3 为 `2048x3072`、3:2 为 `3072x2048`；其他比例保持短边 2048，`auto` 使用上游成品的实际比例。
 
+当同一个公开图片模型同时具有生成和编辑路由时，Chat Completions/Responses 会按能力明确选择图片生成路由；图片编辑仍只由 Images Edits 选取。该规则不依赖模型目录顺序，也不硬编码 Imagine 2.0 的具体版本。固定 `-2k` 别名会从 Chat 请求中的原始公开模型名恢复，因此不会在转换为上游模型名后丢失 2K 后处理。
+
 ### Grok Console
 
 Console 使用当前版本内置目录。对话为无状态转发；图片、视频和语音使用 xAI 标准资源接口。

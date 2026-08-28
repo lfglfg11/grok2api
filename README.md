@@ -272,6 +272,8 @@ Web uses a built-in catalog filtered by account tier; higher tiers inherit lower
 
 Web Imagine generation forwards only the protocol-supported `aspect_ratio` and `resolution` controls. `size` remains an OpenAI-compatible input alias and is converted locally to an aspect ratio; pixel fields such as `size`, `width/height`, and `imageWidth/imageHeight` are never sent upstream. Live tests show that the current Web upstream still returns roughly 1K pixels even with `resolution=2k`. Therefore, `grok-imagine-image-2.0-2k` or an explicit `resolution=2k` triggers a Catmull-Rom server-side upscale of the final image before storage and URL/Base64 delivery. This produces real 2K pixel dimensions across Chat Completions, Images Generations, and Images Edits, but it is post-processing rather than native upstream 2K generation. Targets include `2048x2048` for 1:1, `2048x3072` for 2:3, and `3072x2048` for 3:2; other ratios keep a 2048-pixel short edge, while `auto` follows the returned image ratio.
 
+When one public image model exposes both generation and edit routes, Chat Completions and Responses explicitly select the image-generation capability; Images Edits continues to select the edit capability independently. This is capability-based rather than tied to a specific Imagine 2.0 version or catalog order. Fixed `-2k` aliases are recovered from the original public model name in Chat requests, so their 2K post-processing contract is not lost when the gateway switches to the concrete upstream model name.
+
 ### Grok Console
 
 Console uses the catalog built into the current release. Conversation forwarding is stateless, while image, video, and voice use the standard xAI resource APIs.

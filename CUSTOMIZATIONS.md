@@ -4,12 +4,12 @@
 
 ## 1. 当前快照与差异基线
 
-记录日期：2026-08-25。
+记录日期：2026-08-28。
 
 | 项目 | 提交 |
 | --- | --- |
 | 二开分支 | `video-image` |
-| 本文覆盖的最后一个业务二开提交 | `9a91facc` (`feat: expose server tool progress in chat streams`) |
+| 本文覆盖的最后一个业务二开提交 | `394b996d` (`fix: route chat image models to generation`) |
 | 最新上游合并提交 | `20473523` (`Merge branch 'main' into video-image`) |
 | 已合入的官方基线 | `62d2775c` (`Merge pull request #1009 from chenyme/gateway`) |
 | 记录时官方 `upstream/main` | `62d2775c` |
@@ -35,6 +35,7 @@ git log --reverse --oneline main..video-image
 | 远程图片物化 | 上游无法下载参考图时，安全下载到本地并转为可提交输入；图片编辑复用同一策略 | `pkg/remotemedia/image.go`、`gateway/video.go`、`gateway/image.go` |
 | OpenAI Images 兼容 | Generations/Edits 支持 JSON、multipart、多种图片字段、尺寸映射和兼容别名 | `handler.go`、Swagger、`console/catalog.go` |
 | 固定 2K 图片别名 | 三个 `-2k` 模型别名在 Chat Completions、Images Generations、Images Edits 中都无条件将分辨率改为 `2k` | `domain/model/media_alias.go`、`gateway/image.go`、`console/chat_media.go` |
+| Chat 图片能力选路 | 同一公开模型同时具有生成/编辑能力时，Chat/Responses 明确选择图片生成路由，避免纯文本请求误入 `image_edit` | `gateway/service.go`、`web/image.go` |
 | multi-agent 默认工具 | 所有名称中含独立 `multi-agent` 段的 Console 模型默认补齐代码解释器、Web 搜索和 X 搜索 | `console/normalize.go` |
 | 搜索/工具进度透传 | Responses 的服务端工具事件转换为 Chat Completions 的 `reasoning_content` 流 | `conversation/chat_server_tools.go`、`conversation/stream.go` |
 
@@ -145,13 +146,15 @@ Images API 的最终兼容行为：
 - 图片比例额外支持 `2:1`、`1:2`、`19.5:9`、`9:19.5`、`20:9`、`9:20`。
 - `quality`、`background`、`output_compression`、`mask`、`user` 等 OpenAI 专用字段允许传入但不参与当前 Grok 请求。
 - 固定 2K 别名由 Gateway 统一转换为 `resolution=2k`，且不改变实际上游模型名。Web Imagine 生成只向上游发送协议支持的 `aspect_ratio` 和 `resolution`；兼容入参 `size` 只在本地换算宽高比，绝不转发 `size`、`width/height` 或 `imageWidth/imageHeight` 等实验字段。
+- 当同一公开模型同时注册 `CapabilityImage` 和 `CapabilityImageEdit` 时，Chat Completions/Responses 的会话候选池会排除同名编辑路由并固定选择图片生成能力；`/v1/images/edits` 仍按 `CapabilityImageEdit` 独立选路。该规则按能力判断，不硬编码 Imagine 2.0 版本名。
+- Web Chat 生图从原始 JSON 的公开模型名恢复固定分辨率别名，因此 `grok-imagine-image-2.0-2k` 即使在网关内被转换为相同的上游模型名，也仍会强制 `resolution=2k` 并执行最终成品 2K 放大。
 - `grok-imagine-image-2.0` 与衍生模型 `grok-imagine-image-2.0-2k` 当前只启用 Web 路由，Chat Completions、Images Generations、Images Edits 都由 Web 承接。真实上游实验确认 Web 当前即使收到 `resolution=2k` 仍返回约 1K 像素，因此当模型为 `grok-imagine-image-2.0-2k` 或请求显式指定 `resolution=2k` 时，服务端会在下载最终成品后使用 Catmull-Rom 高质量缩放生成真实 2K 像素文件，再进行本地存储、URL 返回或 Base64 返回；这属于服务端后处理，不应描述为上游原生 2K。
 - 2K 输出按解析后的 `aspect_ratio` 计算：`1:1` 为 `2048x2048`、`2:3` 为 `2048x3072`、`3:2` 为 `3072x2048`，其他比例保持短边 2048 等比缩放；`auto` 使用上游最终图片的实际比例。流式 partial preview 保持上游预览尺寸，completed 成品及事件尺寸使用放大后的真实像素。
 - Console 已暂时撤下 Imagine 2.0。项目保留 Console 的模型定义、固定 2K 映射和适配代码，但将两条 Console 路由标记为禁用；后续上游恢复时只需重新启用，不需要重做兼容层。
 - Web 图片上游返回 429 时会解析 `Retry-After`、同步额度状态、标记当前账号冷却，并在路由尝试预算内更换其他可用 Web 账号；账号池耗尽后不回退到已禁用的 Console 路径。
 - URL 输入被上游拒绝下载时，使用第 3.4 节的安全物化回退。
 
-主要冲突热点：`domain/model/media_alias.go`、`gateway/image.go`、`web/catalog.go`、`console/catalog.go`、`inference/handler.go`、Swagger 注解及生成文件。
+主要冲突热点：`domain/model/media_alias.go`、`gateway/image.go`、`gateway/service.go`、`web/catalog.go`、`web/image.go`、`console/catalog.go`、`inference/handler.go`、Swagger 注解及生成文件。
 
 ### 3.6 multi-agent 模型默认启用三类服务端工具
 
@@ -263,6 +266,7 @@ git merge upstream/main
 - 远程图片下载保留 SSRF、重定向、大小、MIME、凭据隔离保护。
 - Images Generations 带 `image/images` 时仍自动进入编辑流程。
 - 三个 `-2k` 模型在三类兼容接口中仍强制 2K，四个 OpenAI 图片别名映射正确；Imagine 2.0 Web 最终成品仍执行服务端 2K 放大，且上游请求不得重新出现像素/`size` 字段。
+- 同名图片生成/编辑路由并存时，Chat/Responses 仍选择 `CapabilityImage`；不得依赖目录顺序或会话目标随机排序，`/v1/images/edits` 也不能因此失效。
 - 未来 `*-multi-agent-*` 模型仍补齐三个工具，`tool_choice: none` 仍能关闭。
 - Chat 流把服务端工具进度放在 `reasoning_content`，而不是 `tool_calls`。
 - GHCR 工作流仍为 `video-image` 构建预期架构镜像。
@@ -331,6 +335,7 @@ RikkaHub 手工验证请求：
 | `9a91facc` | Chat 流展示服务端搜索和代码工具进度 |
 | `20473523` | 合并最新 `main`（`62d2775c`）并保留二开媒体兼容 |
 | `65ceaabe` | Web Imagine 2K 最终成品高质量放大，并移除上游像素/`size` 实验字段 |
+| `394b996d` | 修复 Chat 图片模型误选编辑路由，并保留 `-2k` 固定分辨率契约 |
 
 ## 8. 维护原则
 
