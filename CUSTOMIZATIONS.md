@@ -156,6 +156,7 @@ Images API 的最终兼容行为：
 - 当上游结果没有附件元数据、仅返回多个 `generatedImageUrls` 时，回退选择按最新候选优先（从列表末尾向前跳过 `preview_image`，只取最新一张），避免把列表开头的旧候选误当成编辑结果。
 - Web 图片编辑的 Referer 保留网页使用的 `/imagine/post/{post_id}` 及 conversation 查询参数；当前上游 main 的兼容行为要求图片编辑创建/查询使用通用 Statsig 签名，收到 `403 code=7` 时只失效并重签对应通用缓存。视频 Imagine 请求仍保留其页面专用签名策略，不能把两条链路混用。
 - Web 原生图片编辑在上传前会在同一 Web 租约上刷新 `/api/auth/session` 的当前 `user_id`，再把该身份同时用于 `x-userid` 和上传/生成流程；数据库中保存的旧 user_id 仅作为 Session 刷新失败时的回退，避免上传成功但被上游标记为非根用户资产。
+- 图片编辑上传诊断额外记录 `uri_user_match`（只记录布尔值），用于确认上游返回的参考资产 URI 是否属于本次请求使用的 Web 用户，不记录用户 ID、资产 ID 或 URL。
 - Web Chat 生图从原始 JSON 的公开模型名恢复固定分辨率别名，因此 `grok-imagine-image-2.0-2k` 即使在网关内被转换为相同的上游模型名，也仍会强制 `resolution=2k` 并执行最终成品 2K 放大。
 - `grok-imagine-image-2.0` 与衍生模型 `grok-imagine-image-2.0-2k` 当前只启用 Web 路由，Chat Completions、Images Generations、Images Edits 都由 Web 承接。真实上游实验确认 Web 当前即使收到 `resolution=2k` 仍返回约 1K 像素，因此当模型为 `grok-imagine-image-2.0-2k` 或请求显式指定 `resolution=2k` 时，服务端会在下载最终成品后使用 Catmull-Rom 高质量缩放生成真实 2K 像素文件，再进行本地存储、URL 返回或 Base64 返回；这属于服务端后处理，不应描述为上游原生 2K。
 - 2K 输出只修改本地最终成品的目标尺寸算法，不改变发送给上游的 `aspect_ratio`、`resolution` 或其他参数。缩放以最终图片实际比例为准，总像素约为 `2048x2048`：`1:1` 为 `2048x2048`、`2:3` 为 `1672x2508`、`3:2` 为 `2508x1672`、`16:9` 为 `2731x1536`。流式 partial preview 保持上游预览尺寸，completed 成品及事件尺寸使用放大后的真实像素；按本次要求未加入“已达到目标尺寸则跳过”的重复放大检测。

@@ -971,6 +971,7 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 			"file_source", uploaded.FileSource,
 			"metadata_present", uploaded.MetadataID != "",
 			"uri_present", uploaded.URI != "",
+			"uri_user_match", uploaded.URI != "" && strings.Contains(uploaded.URI, "/users/"+strings.TrimSpace(userID)+"/"),
 			"mime_type", image.MIMEType,
 			"input_bytes", len(image.Data),
 		)

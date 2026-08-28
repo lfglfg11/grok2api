@@ -282,7 +282,7 @@ Web 图片编辑使用当前 `mediaGenInput.imageToImage` 协议：上传得到�
 当最终会话响应包含多个生成 URL 时，适配器优先选择 `fileAttachmentAssetMetadata` 中明确标记为 `isModelGenerated=true`、`isLatest=true` 且不是预览图的最终资产；只有缺少最终资产元数据时才回退到 `generatedImageUrls`，避免 `/v1/images/edits` 返回中间图或旧候选。
 如果上游没有附件元数据而返回多个 URL，回退时会从列表末尾向前选择最新的非预览候选。
 
-图片编辑的 Referer 跟随浏览器可见的 SPA 路由：创建请求使用 `/imagine/post/{post_id}`，结果查询使用同一页面及其 `conversation` 查询参数；Statsig 始终绑定初始化 SPA 的 `/imagine` 文档。收到结构化 `403 code=7` 后，只失效并刷新这份 Imagine 文档签名。
+图片编辑的 Referer 跟随浏览器可见的 SPA 路由：创建请求使用 `/imagine/post/{post_id}`，结果查询使用同一页面及其 `conversation` 查询参数；当前图片编辑使用与上游 main 对齐的通用 Web Statsig 签名。收到结构化 `403 code=7` 后，只失效并刷新对应通用签名；视频 Imagine 请求仍保留独立的页面签名策略。
 
 Web 图片编辑上传前会在同一个 Web 租约上从 `/api/auth/session` 刷新当前 `user_id`，并将其用于 `x-userid` 及后续上传、生成流程；只有 Session 刷新不可用时才回退数据库中的旧身份，避免图片虽上传成功却被上游编辑器判定为非根用户资产。
 
@@ -290,10 +290,9 @@ Web 图片编辑上传前会在同一个 Web 租约上从 `/api/auth/session` �
 
 Web 图生图完整保留抓包中的三个浏览器阶段：上传使用 `/imagine` 页面，创建编辑会话使用 `/imagine/post/<UUID>` Referer，随后再按网页协议读取 `/rest/app-chat/conversations/<conversation-id>/responses?conversationKind=CONVERSATION_KIND_IMAGINE`，并携带匹配的 post/conversation Referer。最终结果只允许来自最后一条 Imagine Assistant 响应的 `generatedImageUrls`，输入附件、预览图以及其他偶然出现的 `/generated/` 字符串都不会被选中。诊断日志只额外记录上游返回的模型标签和参考图数量汇总，便于确认实际 Imagine 代际，不记录资产 ID 或图片内容。
 
-Imagine 媒体 POST 请求使用 `/imagine` 页面中的 `grok-site-verification` 元数据生成 `x-statsig-id`，不再复用通用 `/index` 或首页的元数据。页面专用签名与普通 Web 请求使用不同缓存键；上游返回代码 7 的“重新加载”错误时，只失效并重试对应的 Imagine 签名。
-获取 verification HTML 时会附加一次性缓存破坏参数，避免出口或 CDN 返回旧版 `/imagine` 页面；该参数只用于拉取页面，不会进入签名目标路径或业务请求载荷。
+通用 Web 媒体 POST 请求使用普通 Web verification 流程生成 `x-statsig-id`；上游返回代码 7 的“重新加载”错误时，只失效并重试对应签名。获取 verification HTML 时会附加一次性缓存破坏参数，避免出口或 CDN 返回旧页面；该参数只用于拉取页面，不会进入签名目标路径或业务请求载荷。
 
-为排查上游参考图绑定问题，Web 适配器会解析上传响应归一化后的 `fileSource`，并输出隐私安全的图片编辑诊断：上游是否标记为用户根上传、已解析参考图数量、回显输入资产数量和生成 URL 数量。日志不会记录资产 ID、URL、图片内容、Cookie 或 token。
+为排查上游参考图绑定问题，Web 适配器会解析上传响应归一化后的 `fileSource`，并输出隐私安全的图片编辑诊断：上游是否标记为用户根上传、返回 URI 是否属于当前运行时用户、已解析参考图数量、回显输入资产数量和生成 URL 数量。日志不会记录资产 ID、URL、图片内容、Cookie 或 token。
 
 ### Grok Console
 
