@@ -9,7 +9,7 @@
 | 项目 | 提交 |
 | --- | --- |
 | 二开分支 | `video-image` |
-| 本文覆盖的最后一个业务二开提交 | 当前工作树：为 Web 图片编辑上传与生成绑定可信运行时 `x-userid` |
+| 本文覆盖的最后一个业务二开提交 | `9ec5a5b5` (`fix(web): bind image edits to runtime user identity`) |
 | 最新上游合并提交 | `20473523` (`Merge branch 'main' into video-image`) |
 | 已合入的官方基线 | `62d2775c` (`Merge pull request #1009 from chenyme/gateway`) |
 | 记录时官方 `upstream/main` | `62d2775c` |
@@ -346,7 +346,7 @@ RikkaHub 手工验证请求：
 | `b097cb03` | Web Imagine 图片编辑载荷重新与当前网页协议对齐：保留 Imagine 编辑模式字段，移除误加的响应侧 `image_edit_is_root_user_uploaded`，并为上游拒绝日志增加脱敏后的错误码与消息 |
 | `1948f2c6` | 解析上传响应的 `fileSource`，并输出不含凭据、资产标识和 URL 的根参考图识别诊断，定位上游是否真正绑定 `inputAssets` |
 | `2d4508f4` | 按网页抓包将图片编辑生成请求的 Referer 对齐为 `/imagine/post/<UUID>`，上传 Referer 仍保持 `/imagine` |
-| 本次修复 | 图片编辑上传与生成阶段绑定由账号记录或 `/api/auth/session` 可信解析的同一个 `x-userid`；账号导入仍拒绝浏览器身份 Cookie |
+| `9ec5a5b5` | 图片编辑上传与生成阶段绑定由账号记录或 `/api/auth/session` 可信解析的同一个 `x-userid`；账号导入仍拒绝浏览器身份 Cookie |
 
 ## 8. 维护原则
 
