@@ -290,6 +290,7 @@ Web 图片编辑上传前会在同一个 Web 租约上从 `/api/auth/session` �
 Web 图生图完整保留抓包中的三个浏览器阶段：上传使用 `/imagine` 页面，创建编辑会话使用 `/imagine/post/<UUID>` Referer，随后再按网页协议读取 `/rest/app-chat/conversations/<conversation-id>/responses?conversationKind=CONVERSATION_KIND_IMAGINE`，并携带匹配的 post/conversation Referer。最终结果只允许来自最后一条 Imagine Assistant 响应的 `generatedImageUrls`，输入附件、预览图以及其他偶然出现的 `/generated/` 字符串都不会被选中。诊断日志只额外记录上游返回的模型标签和参考图数量汇总，便于确认实际 Imagine 代际，不记录资产 ID 或图片内容。
 
 Imagine 媒体 POST 请求使用 `/imagine` 页面中的 `grok-site-verification` 元数据生成 `x-statsig-id`，不再复用通用 `/index` 或首页的元数据。页面专用签名与普通 Web 请求使用不同缓存键；上游返回代码 7 的“重新加载”错误时，只失效并重试对应的 Imagine 签名。
+获取 verification HTML 时会附加一次性缓存破坏参数，避免出口或 CDN 返回旧版 `/imagine` 页面；该参数只用于拉取页面，不会进入签名目标路径或业务请求载荷。
 
 为排查上游参考图绑定问题，Web 适配器会解析上传响应归一化后的 `fileSource`，并输出隐私安全的图片编辑诊断：上游是否标记为用户根上传、已解析参考图数量、回显输入资产数量和生成 URL 数量。日志不会记录资产 ID、URL、图片内容、Cookie 或 token。
 

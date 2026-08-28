@@ -364,7 +364,18 @@ type statsigMetaResponse struct {
 func fetchStatsigMetaResponse(ctx context.Context, baseURL, token string, lease *infraegress.Lease, path string, do func(*http.Request) (*http.Response, error)) (statsigMetaResponse, error) {
 	requestCtx, cancel := context.WithTimeout(infraegress.WithPhysicalCallStage(ctx, "statsig_meta"), 15*time.Second)
 	defer cancel()
-	request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, strings.TrimRight(baseURL, "/")+path, nil)
+	metaURL := strings.TrimRight(baseURL, "/") + path
+	if parsed, parseErr := url.Parse(metaURL); parseErr == nil {
+		query := parsed.Query()
+		// The verification meta is build-specific. A stale intermediary response
+		// produces the upstream "page is out of date" (code 7) even after the
+		// signature cache is invalidated, so force a fresh document fetch without
+		// changing the path that is sent to the signer.
+		query.Set("__grok2api_statsig", newRequestUUID())
+		parsed.RawQuery = query.Encode()
+		metaURL = parsed.String()
+	}
+	request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, metaURL, nil)
 	if err != nil {
 		return statsigMetaResponse{}, err
 	}
