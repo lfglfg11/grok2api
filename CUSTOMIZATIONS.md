@@ -9,7 +9,7 @@
 | 项目 | 提交 |
 | --- | --- |
 | 二开分支 | `video-image` |
-| 本文覆盖的最后一个业务二开提交 | `394b996d` (`fix: route chat image models to generation`) |
+| 本文覆盖的最后一个业务二开提交 | `ad01c7c1` (`fix: support chat image editing and balanced 2k output`) |
 | 最新上游合并提交 | `20473523` (`Merge branch 'main' into video-image`) |
 | 已合入的官方基线 | `62d2775c` (`Merge pull request #1009 from chenyme/gateway`) |
 | 记录时官方 `upstream/main` | `62d2775c` |
@@ -337,6 +337,7 @@ RikkaHub 手工验证请求：
 | `20473523` | 合并最新 `main`（`62d2775c`）并保留二开媒体兼容 |
 | `65ceaabe` | Web Imagine 2K 最终成品高质量放大，并移除上游像素/`size` 实验字段 |
 | `394b996d` | 修复 Chat 图片模型误选编辑路由，并保留 `-2k` 固定分辨率契约 |
+| `ad01c7c1` | 修复 Imagine 2.0 Chat 图生图分流，并将 Web 2K 本地成品调整为约 4.2MP 等比尺寸 |
 
 ## 8. 维护原则
 
