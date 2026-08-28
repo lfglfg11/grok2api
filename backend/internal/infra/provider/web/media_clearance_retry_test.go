@@ -290,6 +290,7 @@ func TestLiteChallengeRetryExhaustionReturnsNormalizedJSON(t *testing.T) {
 }
 
 func TestImageEditReplaysWholeFlowWithRefreshedClearance(t *testing.T) {
+	const userID = "497f19f8-49d4-458a-bee4-43ec3dcaf8ca"
 	for _, challengeStage := range []string{"upload", "generation"} {
 		t.Run(challengeStage, func(t *testing.T) {
 			var solverCalls atomic.Int32
@@ -303,6 +304,7 @@ func TestImageEditReplaysWholeFlowWithRefreshedClearance(t *testing.T) {
 				case "/http/upload-file-v2/direct":
 					call := uploadCalls.Add(1)
 					assertTestClearanceCookie(t, request, solverCalls.Load())
+					assertTestRuntimeUserIDCookie(t, request, userID)
 					if challengeStage == "upload" && call == 1 {
 						writeTestChallenge(writer)
 						return
@@ -313,6 +315,7 @@ func TestImageEditReplaysWholeFlowWithRefreshedClearance(t *testing.T) {
 				case "/rest/app-chat/conversations/new":
 					call := generationCalls.Add(1)
 					assertTestClearanceCookie(t, request, solverCalls.Load())
+					assertTestRuntimeUserIDCookie(t, request, userID)
 					if challengeStage == "generation" && call == 1 {
 						writeTestChallenge(writer)
 						return
@@ -327,6 +330,7 @@ func TestImageEditReplaysWholeFlowWithRefreshedClearance(t *testing.T) {
 			defer server.Close()
 
 			adapter, credential := testMediaAdapter(t, server.URL)
+			credential.UserID = userID
 			enableTestClearance(adapter, server.URL)
 			response, err := adapter.EditImage(context.Background(), provider.ImageEditRequest{
 				Credential:  credential,
@@ -358,6 +362,7 @@ func TestImageEditReplaysWholeFlowWithRefreshedClearance(t *testing.T) {
 }
 
 func TestImageEditStructuredForbiddenDoesNotRetryOrRefresh(t *testing.T) {
+	const userID = "497f19f8-49d4-458a-bee4-43ec3dcaf8ca"
 	for _, rejectedStage := range []string{"upload", "generation"} {
 		t.Run(rejectedStage, func(t *testing.T) {
 			var solverCalls atomic.Int32
@@ -370,6 +375,7 @@ func TestImageEditStructuredForbiddenDoesNotRetryOrRefresh(t *testing.T) {
 				case "/http/upload-file-v2/direct":
 					uploadCalls.Add(1)
 					assertTestClearanceCookie(t, request, solverCalls.Load())
+					assertTestRuntimeUserIDCookie(t, request, userID)
 					if rejectedStage == "upload" {
 						writeTestPolicyForbidden(writer)
 						return
@@ -379,6 +385,7 @@ func TestImageEditStructuredForbiddenDoesNotRetryOrRefresh(t *testing.T) {
 				case "/rest/app-chat/conversations/new":
 					generationCalls.Add(1)
 					assertTestClearanceCookie(t, request, solverCalls.Load())
+					assertTestRuntimeUserIDCookie(t, request, userID)
 					writeTestPolicyForbidden(writer)
 				default:
 					fhttp.NotFound(writer, request)
@@ -387,6 +394,7 @@ func TestImageEditStructuredForbiddenDoesNotRetryOrRefresh(t *testing.T) {
 			defer server.Close()
 
 			adapter, credential := testMediaAdapter(t, server.URL)
+			credential.UserID = userID
 			enableTestClearance(adapter, server.URL)
 			for range 2 {
 				response, err := adapter.EditImage(context.Background(), provider.ImageEditRequest{
@@ -463,6 +471,14 @@ func assertTestClearanceCookie(t *testing.T, request *fhttp.Request, sequence in
 	want := fmt.Sprintf("cf_clearance=clearance-%d", sequence)
 	if !strings.Contains(request.Header.Get("Cookie"), want) {
 		t.Errorf("request %s did not use %s: %q", request.URL.Path, want, request.Header.Get("Cookie"))
+	}
+}
+
+func assertTestRuntimeUserIDCookie(t *testing.T, request *fhttp.Request, userID string) {
+	t.Helper()
+	want := "x-userid=" + userID
+	if !strings.Contains(request.Header.Get("Cookie"), want) {
+		t.Errorf("request %s did not use runtime identity %s", request.URL.Path, want)
 	}
 }
 

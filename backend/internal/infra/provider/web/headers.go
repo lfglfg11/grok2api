@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"strings"
 
 	infraegress "github.com/chenyme/grok2api/backend/internal/infra/egress"
 )
@@ -21,6 +22,22 @@ func buildHeaders(token string, lease *infraegress.Lease, contentType string) ht
 	value.Set("Cookie", infraegress.BuildSSOCookie(token, lease.CFCookies))
 	value.Set("x-xai-request-id", newRequestUUID())
 	return value
+}
+
+// applyRuntimeUserIDCookie adds the authenticated account identity resolved by
+// this process. Browser identity cookies supplied through account imports stay
+// blocked by SanitizeCloudflareCookies; only a trusted, normalized session uid
+// may be attached to an upstream request.
+func applyRuntimeUserIDCookie(value http.Header, userID string) {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return
+	}
+	cookie := strings.TrimSpace(value.Get("Cookie"))
+	if cookie != "" {
+		cookie += "; "
+	}
+	value.Set("Cookie", cookie+"x-userid="+userID)
 }
 
 // applyAppHeaders 补齐真实浏览器同源 fetch 会携带的稳定请求头，不伪造 Sentry 或 Client Hints。

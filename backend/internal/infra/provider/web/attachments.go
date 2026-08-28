@@ -91,7 +91,7 @@ func (a *Adapter) prepareChatAttachments(ctx context.Context, cfg Config, lease 
 	}
 	attachments := make([]string, 0, len(pending))
 	for _, file := range pending {
-		uploaded, err := a.uploadFileV2Direct(ctx, cfg, lease, token, file, cfg.BaseURL+"/", "", "chat_attachment_upload")
+		uploaded, err := a.uploadFileV2Direct(ctx, cfg, lease, token, file, cfg.BaseURL+"/", "", "", "chat_attachment_upload")
 		if err != nil {
 			return nil, err
 		}

@@ -54,6 +54,19 @@ func TestWebHeadersOnlyUseSSOAndCloudflareCookies(t *testing.T) {
 	}
 }
 
+func TestRuntimeUserIDCookieIsAddedOnlyAfterSanitization(t *testing.T) {
+	const userID = "497f19f8-49d4-458a-bee4-43ec3dcaf8ca"
+	lease := &infraegress.Lease{UserAgent: "test-agent", CFCookies: "cf_clearance=clear; x-userid=untrusted"}
+	headers := buildHeaders("test-sso", lease, "application/json")
+	if strings.Contains(headers.Get("Cookie"), "untrusted") {
+		t.Fatalf("stored browser identity leaked before runtime binding: %q", headers.Get("Cookie"))
+	}
+	applyRuntimeUserIDCookie(headers, userID)
+	if !strings.Contains(headers.Get("Cookie"), "x-userid="+userID) {
+		t.Fatalf("runtime user identity missing: %q", headers.Get("Cookie"))
+	}
+}
+
 func TestAppHeadersMatchStableBrowserFetchSignals(t *testing.T) {
 	headers := http.Header{}
 	applyAppHeaders(headers, "https://grok.com", "https://grok.com/")

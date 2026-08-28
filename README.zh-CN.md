@@ -277,6 +277,8 @@ Web Imagine 生成只向上游发送协议支持的 `aspect_ratio` 和 `resoluti
 
 Web 图片编辑使用当前 `mediaGenInput.imageToImage` 协议：上传得到的 `fileMetadataId` 通过 `inputAssets` 提交，并保留当前 Grok 网页实际发送的 `kind=CONVERSATION_KIND_IMAGINE` 与 `responseMetadata.modelConfigOverride.modelMap.imageEditModel=imagine`。`image_edit_is_root_user_uploaded` 属于上游响应资产的辅助元数据，不得作为请求字段发送。
 
+图片编辑的上传与生成请求还会携带同一个运行时解析得到的 `x-userid` Cookie。该值只来自可信账号记录，或当前 Web 出口租约上的 Grok `/api/auth/session` 响应；账号导入中的浏览器身份 Cookie 仍会被 Cloudflare Cookie 白名单拒绝。这样既保持网页端的“用户—上传资产”绑定，又不会保存或重放抓包里的身份 Cookie。
+
 Web 两个阶段分别保留抓包中的浏览器上下文：上传使用 `/imagine` 页面，图片编辑生成请求使用 `/imagine/post/<UUID>` Referer。
 
 为排查上游参考图绑定问题，Web 适配器会解析上传响应归一化后的 `fileSource`，并输出隐私安全的图片编辑诊断：上游是否标记为用户根上传、已解析参考图数量、回显输入资产数量和生成 URL 数量。日志不会记录资产 ID、URL、图片内容、Cookie 或 token。

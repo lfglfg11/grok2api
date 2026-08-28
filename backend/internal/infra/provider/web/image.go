@@ -945,6 +945,10 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 			lease.Release()
 		}
 	}()
+	userID, err := a.resolveGatewayUserID(ctx, cfg.BaseURL, request.Credential, token, lease)
+	if err != nil {
+		return nil, fmt.Errorf("resolve Grok Web image edit user identity: %w", err)
+	}
 	images := make([]provider.ImageInput, 0, len(request.ImageURLs))
 	for _, rawURL := range request.ImageURLs {
 		image, loadErr := a.loadChatImage(ctx, lease, rawURL, cfg.MaxInputImageBytes)
@@ -955,7 +959,7 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 	}
 	assets := make([]string, 0, len(images))
 	for _, image := range images {
-		uploaded, uploadErr := a.uploadFileV2Direct(ctx, cfg, lease, token, image, cfg.BaseURL+"/imagine", imagineSelfUploadSource, "image_edit_upload")
+		uploaded, uploadErr := a.uploadFileV2Direct(ctx, cfg, lease, token, image, cfg.BaseURL+"/imagine", imagineSelfUploadSource, userID, "image_edit_upload")
 		if uploadErr != nil {
 			return nil, uploadErr
 		}
@@ -972,7 +976,7 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 		assets = append(assets, uploaded.MetadataID)
 	}
 	payload := buildImageEditPayload(request.Prompt, assets, ratio)
-	response, err := a.postJSONWithReferer(ctx, cfg, lease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.ImageTimeoutSeconds)*time.Second, imageEditGenerateReferer(cfg.BaseURL))
+	response, err := a.postJSONWithReferer(ctx, cfg, lease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.ImageTimeoutSeconds)*time.Second, imageEditGenerateReferer(cfg.BaseURL), userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1453,7 +1457,7 @@ func appendCapturedImageURL(results *[]string, value string) {
 	}
 }
 
-func (a *Adapter) uploadFileV2Direct(ctx context.Context, cfg Config, lease *egress.Lease, token string, file provider.ImageInput, referer, fileSource, stage string) (uploadedFile, error) {
+func (a *Adapter) uploadFileV2Direct(ctx context.Context, cfg Config, lease *egress.Lease, token string, file provider.ImageInput, referer, fileSource, userID, stage string) (uploadedFile, error) {
 	body, contentType, err := buildDirectFileUploadBody(file, fileSource)
 	if err != nil {
 		return uploadedFile{}, err
@@ -1465,6 +1469,7 @@ func (a *Adapter) uploadFileV2Direct(ctx context.Context, cfg Config, lease *egr
 		return uploadedFile{}, err
 	}
 	request.Header = buildHeaders(token, lease, contentType)
+	applyRuntimeUserIDCookie(request.Header, userID)
 	request.Header.Del("x-xai-request-id")
 	applyAppHeaders(request.Header, cfg.BaseURL, referer)
 	response, err := lease.DoDeferredForbidden(request)
@@ -1600,10 +1605,10 @@ func directFileUploadTerminalError(raw json.RawMessage) bool {
 }
 
 func (a *Adapter) postJSON(ctx context.Context, cfg Config, lease *egress.Lease, token, endpoint string, payload any, timeout time.Duration) (*http.Response, error) {
-	return a.postJSONWithReferer(ctx, cfg, lease, token, endpoint, payload, timeout, cfg.BaseURL+"/imagine")
+	return a.postJSONWithReferer(ctx, cfg, lease, token, endpoint, payload, timeout, cfg.BaseURL+"/imagine", "")
 }
 
-func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *egress.Lease, token, endpoint string, payload any, timeout time.Duration, referer string) (*http.Response, error) {
+func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *egress.Lease, token, endpoint string, payload any, timeout time.Duration, referer, userID string) (*http.Response, error) {
 	data, _ := json.Marshal(payload)
 	for attempt := 0; attempt < 2; attempt++ {
 		requestCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -1613,6 +1618,7 @@ func (a *Adapter) postJSONWithReferer(ctx context.Context, cfg Config, lease *eg
 			return nil, err
 		}
 		request.Header = buildHeaders(token, lease, "application/json")
+		applyRuntimeUserIDCookie(request.Header, userID)
 		applyAppHeaders(request.Header, cfg.BaseURL, referer)
 		a.applySignedStatsig(requestCtx, request, token, lease)
 		response, err := lease.DoDeferredForbidden(request)
