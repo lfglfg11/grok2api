@@ -976,7 +976,8 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 		assets = append(assets, uploaded.MetadataID)
 	}
 	payload := buildImageEditPayload(request.Prompt, assets, ratio)
-	response, err := a.postJSONWithReferer(ctx, cfg, lease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.ImageTimeoutSeconds)*time.Second, imageEditGenerateReferer(cfg.BaseURL), userID)
+	postID := newRequestUUID()
+	response, err := a.postJSONWithReferer(ctx, cfg, lease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.ImageTimeoutSeconds)*time.Second, imageEditPostReferer(cfg.BaseURL, postID), userID)
 	if err != nil {
 		return nil, err
 	}
@@ -995,7 +996,7 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 		reader, writer := io.Pipe()
 		streamCtx, cancel := context.WithCancel(ctx)
 		leaseOwned = false
-		go a.streamImageEdit(streamCtx, writer, response.Body, lease, request.Credential, request.PartialImages, request.Size, ratio, transform)
+		go a.streamImageEdit(streamCtx, writer, response.Body, lease, request.Credential, cfg, token, userID, postID, request.PartialImages, request.Size, ratio, transform)
 		return &provider.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: streamHeaders(), Body: &cancelBody{ReadCloser: reader, cancel: cancel}, QuotaUnits: 1}, nil
 	}
 	defer response.Body.Close()
@@ -1004,8 +1005,16 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 	if consumeErr != nil {
 		return nil, consumeErr
 	}
+	_ = response.Body.Close()
 	a.logImageEditCaptureDiagnostics(capture.Bytes())
 	urls := imageEditResultURLs(&parsed, capture.Bytes())
+	if parsed.ConversationID != "" {
+		if responseURLs, responseErr := a.imageEditConversationResultURLs(ctx, cfg, lease, token, userID, postID, parsed.ConversationID); responseErr != nil {
+			a.log().Warn("web_image_edit_responses_failed", "conversation_id_present", true, "error", responseErr)
+		} else if len(responseURLs) > 0 {
+			urls = responseURLs
+		}
+	}
 	if len(urls) == 0 {
 		return jsonProviderResponse(http.StatusBadGateway, map[string]any{"error": map[string]any{
 			"message": "上游未返回可用的编辑图片",
@@ -1039,7 +1048,15 @@ func buildImageEditPayload(prompt string, assets []string, aspectRatio string) m
 }
 
 func imageEditGenerateReferer(baseURL string) string {
-	return strings.TrimRight(baseURL, "/") + "/imagine/post/" + newRequestUUID()
+	return imageEditPostReferer(baseURL, newRequestUUID())
+}
+
+func imageEditPostReferer(baseURL, postID string) string {
+	return strings.TrimRight(baseURL, "/") + "/imagine/post/" + strings.TrimSpace(postID)
+}
+
+func imageEditResponsesReferer(baseURL, postID, conversationID string) string {
+	return imageEditPostReferer(baseURL, postID) + "?conversation=" + url.QueryEscape(strings.TrimSpace(conversationID))
 }
 
 func resolveImageEditAspectRatio(aspectRatio, size string) (string, error) {
@@ -1087,6 +1104,10 @@ func (a *Adapter) streamImageEdit(
 	source io.ReadCloser,
 	lease *egress.Lease,
 	credential account.Credential,
+	cfg Config,
+	token string,
+	userID string,
+	postID string,
 	partialImages int,
 	size string,
 	aspectRatio string,
@@ -1129,8 +1150,16 @@ func (a *Adapter) streamImageEdit(
 		_ = writer.CloseWithError(consumeErr)
 		return
 	}
+	_ = source.Close()
 	a.logImageEditCaptureDiagnostics(capture.Bytes())
 	urls := imageEditResultURLs(&parsed, capture.Bytes())
+	if parsed.ConversationID != "" {
+		if responseURLs, responseErr := a.imageEditConversationResultURLs(ctx, cfg, lease, token, userID, postID, parsed.ConversationID); responseErr != nil {
+			a.log().Warn("web_image_edit_responses_failed", "conversation_id_present", true, "error", responseErr)
+		} else if len(responseURLs) > 0 {
+			urls = responseURLs
+		}
+	}
 	if len(urls) == 0 {
 		err := fmt.Errorf("上游未返回可用的编辑图片")
 		a.egress.Feedback(context.WithoutCancel(ctx), lease.NodeID, 0, err)
@@ -1224,6 +1253,7 @@ type imageEditCaptureDiagnostics struct {
 	ResolvedImageReferences int
 	InputAssets             int
 	GeneratedURLs           int
+	Models                  []string
 }
 
 func inspectImageEditCapture(data []byte) imageEditCaptureDiagnostics {
@@ -1244,6 +1274,11 @@ func inspectImageEditCaptureValue(value any, result *imageEditCaptureDiagnostics
 	switch current := value.(type) {
 	case map[string]any:
 		for key, nested := range current {
+			if strings.Contains(strings.ToLower(key), "model") {
+				if modelValue, ok := nested.(string); ok && strings.TrimSpace(modelValue) != "" && len(result.Models) < 8 {
+					result.Models = appendUniqueString(result.Models, strings.TrimSpace(modelValue))
+				}
+			}
 			switch key {
 			case "isRootUserUploaded":
 				if flag, ok := nested.(bool); ok && flag {
@@ -1287,6 +1322,7 @@ func (a *Adapter) logImageEditCaptureDiagnostics(data []byte) {
 		"resolved_image_references", diagnostics.ResolvedImageReferences,
 		"input_assets", diagnostics.InputAssets,
 		"generated_urls", diagnostics.GeneratedURLs,
+		"models", diagnostics.Models,
 	)
 }
 
@@ -1304,6 +1340,77 @@ func (w *boundedCapture) Write(value []byte) (int, error) {
 }
 
 func (w *boundedCapture) Bytes() []byte { return w.data }
+
+func (a *Adapter) imageEditConversationResultURLs(
+	ctx context.Context,
+	cfg Config,
+	lease *egress.Lease,
+	token string,
+	userID string,
+	postID string,
+	conversationID string,
+) ([]string, error) {
+	conversationID = strings.TrimSpace(conversationID)
+	if conversationID == "" {
+		return nil, nil
+	}
+	endpoint := strings.TrimRight(cfg.BaseURL, "/") + "/rest/app-chat/conversations/" + url.PathEscape(conversationID) + "/responses?conversationKind=CONVERSATION_KIND_IMAGINE"
+	referer := imageEditResponsesReferer(cfg.BaseURL, postID, conversationID)
+	for attempt := 0; attempt < mediaOutputAttempts; attempt++ {
+		requestCtx, cancel := context.WithTimeout(ctx, time.Duration(cfg.ImageTimeoutSeconds)*time.Second)
+		request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+		request.Header = buildHeaders(token, lease, "application/json")
+		request.Header.Del("Content-Type")
+		applyRuntimeIdentityCookies(request.Header, userID)
+		applyAppHeaders(request.Header, cfg.BaseURL, referer)
+		a.applySignedStatsigForPage(requestCtx, request, token, lease, "/imagine")
+		response, err := lease.DoDeferredForbidden(request)
+		if err != nil {
+			cancel()
+			return nil, err
+		}
+		body, readErr := io.ReadAll(io.LimitReader(response.Body, 8<<20))
+		_ = response.Body.Close()
+		cancel()
+		if readErr != nil {
+			return nil, fmt.Errorf("read Grok Web image edit responses: %w", readErr)
+		}
+		if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+			if response.StatusCode == http.StatusForbidden && attempt == 0 && a.invalidateSignedStatsigForPage(http.MethodGet, endpoint, "/imagine") {
+				continue
+			}
+			return nil, fmt.Errorf("Grok Web image edit responses returned HTTP %d", response.StatusCode)
+		}
+		parsed, parseErr := consumeUpstream(bytes.NewReader(body), nil)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		diagnostics := inspectImageEditCapture(body)
+		a.log().Info("web_image_edit_responses_capture",
+			"frames", diagnostics.Frames,
+			"root_user_uploaded", diagnostics.RootUserUploaded,
+			"resolved_image_references", diagnostics.ResolvedImageReferences,
+			"input_assets", diagnostics.InputAssets,
+			"generated_urls", diagnostics.GeneratedURLs,
+			"models", diagnostics.Models,
+		)
+		if urls := imageEditResultURLs(&parsed, body); len(urls) > 0 {
+			return urls, nil
+		}
+		if attempt+1 < mediaOutputAttempts {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(350 * time.Millisecond):
+			}
+		}
+	}
+	return nil, nil
+}
 
 func extractCapturedImageURLs(data []byte) []string {
 	results := make([]string, 0, 2)

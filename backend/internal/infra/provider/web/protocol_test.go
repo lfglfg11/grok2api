@@ -943,6 +943,10 @@ func TestImageEditGenerateRefererMatchesCapturedPostPage(t *testing.T) {
 	if !regexp.MustCompile(`^https://grok\.com/imagine/post/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`).MatchString(referer) {
 		t.Fatalf("referer = %q", referer)
 	}
+	responsesReferer := imageEditResponsesReferer("https://grok.com/", "post-1", "conversation-1")
+	if responsesReferer != "https://grok.com/imagine/post/post-1?conversation=conversation-1" {
+		t.Fatalf("responses referer = %q", responsesReferer)
+	}
 }
 
 func TestImageEditAspectRatioSupportsOpenAISize(t *testing.T) {
@@ -1162,7 +1166,7 @@ func TestDecodeDirectFileUploadResponse(t *testing.T) {
 
 func TestInspectImageEditCapture(t *testing.T) {
 	diagnostics := inspectImageEditCapture([]byte(`{
-		"result":{"response":{"metadata":{"modelConfigOverride":{"modelMap":{"imageEditModelConfig":{
+		"result":{"response":{"modelName":"imagine-image-edit","metadata":{"modelConfigOverride":{"modelMap":{"imageEditModel":"imagine","imageEditModelConfig":{
 			"isRootUserUploaded":true,
 			"resolvedImageReferences":["https://assets.grok.com/users/test/reference/content"]
 		}}},"mediaGenInput":{"imageToImage":{"inputAssets":["metadata-1"]}}},
@@ -1170,6 +1174,9 @@ func TestInspectImageEditCapture(t *testing.T) {
 	}`))
 	if diagnostics.Frames != 1 || !diagnostics.RootUserUploaded || diagnostics.ResolvedImageReferences != 1 || diagnostics.InputAssets != 1 || diagnostics.GeneratedURLs != 1 {
 		t.Fatalf("diagnostics=%#v", diagnostics)
+	}
+	if !slices.Contains(diagnostics.Models, "imagine-image-edit") || !slices.Contains(diagnostics.Models, "imagine") {
+		t.Fatalf("models=%#v", diagnostics.Models)
 	}
 }
 

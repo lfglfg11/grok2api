@@ -271,7 +271,7 @@ git merge upstream/main
 - 远程图片下载保留 SSRF、重定向、大小、MIME、凭据隔离保护。
 - Images Generations 带 `image/images` 时仍自动进入编辑流程。
 - Web 图片编辑上传继续发送 `IMAGINE_SELF_UPLOAD_FILE_SOURCE`，并使用响应中的 `fileMetadataId` 作为 `inputAssets`；诊断日志不得记录资产 ID、URL、图片内容、Cookie 或 token。
-- Web 图片编辑上传阶段使用 `/imagine` Referer，生成阶段使用网页同形态的 `/imagine/post/<UUID>` Referer；同步上游时不得把两阶段重新合并成同一个固定 Referer。
+- Web 图片编辑上传阶段使用 `/imagine` Referer，创建会话使用网页同形态的 `/imagine/post/<UUID>` Referer，并在创建流结束后使用 conversation ID 读取 `conversations/<id>/responses`；最终图片必须优先取后者，不能退回到“创建流中第一个 `/generated/` URL”的旧行为。
 - 三个 `-2k` 模型在三类兼容接口中仍强制 2K，四个 OpenAI 图片别名映射正确；Imagine 2.0 Web 最终成品仍执行服务端 2K 放大，且上游请求不得重新出现像素/`size` 字段。
 - 同名图片生成/编辑路由并存时，Chat/Responses 仍选择 `CapabilityImage`；不得依赖目录顺序或会话目标随机排序，`/v1/images/edits` 也不能因此失效。
 - 未来 `*-multi-agent-*` 模型仍补齐三个工具，`tool_choice: none` 仍能关闭。
@@ -351,6 +351,7 @@ RikkaHub 手工验证请求：
 | `6cc048b4` | 根据三组网页抓包，为图片编辑上传与生成阶段补齐由可信 `x-userid` 稳定派生的同一个账号级 `grok_device_id`；不保存或重放抓包身份 Cookie |
 | `2cf6074f` | Imagine 图片/视频媒体 POST 改用 `/imagine` 页面 verification meta 生成 Statsig，并与默认 Web 签名缓存和失效范围隔离 |
 | 待本次提交 | 允许账号 Cookie 保存真实 `grok_device_id`；托管 Clearance 模式把该设备身份合并到服务器刷新出的 CF Cookie，并在媒体请求中优先复用，旧账号保持派生回退 |
+| 待本次提交 | 补齐网页图生图的 conversation responses 最终结果读取，优先使用会话成品并记录上游返回的模型标签，避免误取创建流中的旧模型/旁路候选图 |
 
 ## 8. 维护原则
 
