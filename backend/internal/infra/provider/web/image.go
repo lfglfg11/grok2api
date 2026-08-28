@@ -1009,9 +1009,8 @@ func (a *Adapter) editImageAttempt(ctx context.Context, request provider.ImageEd
 
 func buildImageEditPayload(prompt string, assets []string, aspectRatio string) map[string]any {
 	imageToImage := map[string]any{
-		"prompt":                           prompt,
-		"inputAssets":                      assets,
-		"image_edit_is_root_user_uploaded": true,
+		"prompt":      prompt,
+		"inputAssets": assets,
 	}
 	if aspectRatio != "" {
 		imageToImage["aspectRatio"] = aspectRatio
@@ -1019,7 +1018,11 @@ func buildImageEditPayload(prompt string, assets []string, aspectRatio string) m
 	return map[string]any{
 		"modelName": "imagine-image-edit", "message": prompt,
 		"enableImageStreaming": true, "enableSideBySide": true, "sendFinalMetadata": true,
+		"responseMetadata": map[string]any{"modelConfigOverride": map[string]any{"modelMap": map[string]any{
+			"imageEditModel": "imagine",
+		}}},
 		"mediaGenInput": map[string]any{"imageToImage": imageToImage},
+		"kind":          "CONVERSATION_KIND_IMAGINE",
 	}
 }
 

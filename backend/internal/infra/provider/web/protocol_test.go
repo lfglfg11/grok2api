@@ -899,14 +899,32 @@ func TestBuildImageEditPayloadMatchesCapturedMediaGenInputShape(t *testing.T) {
 	if !ok {
 		t.Fatalf("imageToImage = %#v", mediaGenInput["imageToImage"])
 	}
-	if len(payload) != 6 || payload["modelName"] != "imagine-image-edit" || payload["message"] != "改成兔子" ||
+	if len(payload) != 8 || payload["modelName"] != "imagine-image-edit" || payload["message"] != "改成兔子" ||
 		payload["enableImageStreaming"] != true || payload["enableSideBySide"] != true || payload["sendFinalMetadata"] != true {
 		t.Fatalf("payload = %#v", payload)
 	}
-	if imageToImage["prompt"] != "改成兔子" || imageToImage["aspectRatio"] != "1:1" || imageToImage["image_edit_is_root_user_uploaded"] != true || !slices.Equal(imageToImage["inputAssets"].([]string), assets) {
+	if payload["kind"] != "CONVERSATION_KIND_IMAGINE" {
+		t.Fatalf("kind = %#v", payload["kind"])
+	}
+	metadata, ok := payload["responseMetadata"].(map[string]any)
+	if !ok {
+		t.Fatalf("responseMetadata = %#v", payload["responseMetadata"])
+	}
+	override, ok := metadata["modelConfigOverride"].(map[string]any)
+	if !ok {
+		t.Fatalf("modelConfigOverride = %#v", metadata["modelConfigOverride"])
+	}
+	modelMap, ok := override["modelMap"].(map[string]any)
+	if !ok || modelMap["imageEditModel"] != "imagine" {
+		t.Fatalf("modelMap = %#v", override["modelMap"])
+	}
+	if imageToImage["prompt"] != "改成兔子" || imageToImage["aspectRatio"] != "1:1" || !slices.Equal(imageToImage["inputAssets"].([]string), assets) {
 		t.Fatalf("imageToImage = %#v", imageToImage)
 	}
-	for _, field := range []string{"temporary", "enableImageGeneration", "imageGenerationCount", "config", "responseMetadata", "kind", "parentPostId"} {
+	if _, exists := imageToImage["image_edit_is_root_user_uploaded"]; exists {
+		t.Fatalf("response-only aux key leaked into request: %#v", imageToImage)
+	}
+	for _, field := range []string{"temporary", "enableImageGeneration", "imageGenerationCount", "config", "parentPostId"} {
 		if _, exists := payload[field]; exists {
 			t.Fatalf("legacy field %q leaked into payload: %#v", field, payload)
 		}
@@ -1173,6 +1191,29 @@ func TestWebMediaUpstreamDiagnosticLogsStageHeadersWithoutBodyPreview(t *testing
 		}
 	}
 	for _, secret := range []string{"Just a moment", "challenge-secret", "access_token=secret", "owner@example.com", "token=secret", strings.Repeat("A", 256)} {
+		if strings.Contains(logLine, secret) {
+			t.Fatalf("log exposed %q: %s", secret, logLine)
+		}
+	}
+}
+
+func TestWebMediaUpstreamDiagnosticLogsSanitizedStructuredError(t *testing.T) {
+	var output bytes.Buffer
+	adapter := &Adapter{logger: slog.New(slog.NewTextHandler(&output, nil))}
+	body := []byte(`{"code":7,"message":"Page is out of date for owner@example.com; reload https://grok.com/private"}`)
+	upstreamErr := newWebMediaUpstreamError(http.StatusForbidden, body, false)
+
+	adapter.logWebMediaUpstreamRejection("image_edit_generate", nil, upstreamErr)
+	logLine := output.String()
+	for _, expected := range []string{
+		"stage=image_edit_generate", "status=403", "upstream_code=7",
+		"upstream_message=\"Page is out of date for [REDACTED_EMAIL]; reload [REDACTED_URL]\"",
+	} {
+		if !strings.Contains(logLine, expected) {
+			t.Fatalf("log missing %q: %s", expected, logLine)
+		}
+	}
+	for _, secret := range []string{"owner@example.com", "https://grok.com/private"} {
 		if strings.Contains(logLine, secret) {
 			t.Fatalf("log exposed %q: %s", secret, logLine)
 		}

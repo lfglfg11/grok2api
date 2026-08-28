@@ -22,6 +22,8 @@ import (
 type webMediaUpstreamError struct {
 	status              int
 	summary             string
+	upstreamCode        string
+	upstreamMessage     string
 	bodyBytes           int
 	bodyTruncated       bool
 	bodyPrefixSHA256    string
@@ -107,9 +109,12 @@ var (
 // body metadata and a prefix hash, never the upstream response body itself.
 func newWebMediaUpstreamError(status int, body []byte, truncated bool) *webMediaUpstreamError {
 	digest := sha256.Sum256(body)
+	code, message, _ := extractWebMediaUpstreamErrorFields(body)
 	return &webMediaUpstreamError{
 		status:              status,
 		summary:             summarizeWebMediaUpstreamError(status, body, truncated),
+		upstreamCode:        code,
+		upstreamMessage:     message,
 		bodyBytes:           len(body),
 		bodyTruncated:       truncated,
 		bodyPrefixSHA256:    fmt.Sprintf("%x", digest),
@@ -156,6 +161,8 @@ func (a *Adapter) logWebMediaUpstreamRejection(stage string, response *http.Resp
 	attributes := []any{
 		"stage", stage,
 		"status", upstreamErr.status,
+		"upstream_code", upstreamErr.upstreamCode,
+		"upstream_message", upstreamErr.upstreamMessage,
 		"body_bytes_captured", upstreamErr.bodyBytes,
 		"body_truncated", upstreamErr.bodyTruncated,
 		"body_prefix_sha256", upstreamErr.bodyPrefixSHA256,

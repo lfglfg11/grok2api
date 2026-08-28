@@ -275,7 +275,7 @@ Web Imagine 生成只向上游发送协议支持的 `aspect_ratio` 和 `resoluti
 
 当同一个公开图片模型同时具有生成和编辑路由时，Chat Completions/Responses 会先明确选择图片生成路由：Imagine 2.0 的纯文本请求继续生图；若当前用户消息带图片附件，Web 适配层会转入既有图片编辑流程。Images Edits 仍按图片编辑能力独立选路。固定 `-2k` 别名会从 Chat 请求中的原始公开模型名恢复，因此生成和编辑响应都不会丢失 2K 后处理。
 
-Web 图片编辑使用当前 `mediaGenInput.imageToImage` 协议：上传得到的 `fileMetadataId` 通过 `inputAssets` 提交，并设置 `image_edit_is_root_user_uploaded=true`，明确把这些资产标记为用户上传的根参考图。旧版 `kind` 和 `responseMetadata.modelConfigOverride.modelMap.imageEditModel` 标记不再发送，因为当前上游会对该旧协议返回 HTTP 403。
+Web 图片编辑使用当前 `mediaGenInput.imageToImage` 协议：上传得到的 `fileMetadataId` 通过 `inputAssets` 提交，并保留当前 Grok 网页实际发送的 `kind=CONVERSATION_KIND_IMAGINE` 与 `responseMetadata.modelConfigOverride.modelMap.imageEditModel=imagine`。`image_edit_is_root_user_uploaded` 属于上游响应资产的辅助元数据，不得作为请求字段发送。
 
 ### Grok Console
 
