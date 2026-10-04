@@ -4,17 +4,17 @@
 
 ## 1. 当前快照与差异基线
 
-记录日期：2026-08-28。
+记录日期：2026-10-04。
 
 | 项目 | 提交 |
 | --- | --- |
 | 二开分支 | `video-image` |
-| 本文覆盖的最后一个业务二开提交 | `2cf6074f` (`fix(web): sign imagine media with page-specific metadata`) |
-| 最新上游合并提交 | `20473523` (`Merge branch 'main' into video-image`) |
-| 已合入的官方基线 | `62d2775c` (`Merge pull request #1009 from chenyme/gateway`) |
-| 记录时官方 `upstream/main` | `62d2775c` |
+| 本文覆盖的最后一个业务二开提交 | `63ed3c54` (`fix(web): bind statsig metadata to account identity`) |
+| 最新上游合并提交 | `b49637b2` (`Merge upstream main (7c889a96) into video-image`) |
+| 已合入的官方基线 | `7c889a96` (`docs: update README.md`) |
+| 记录时官方 `upstream/main` | `7c889a96` |
 
-`video-image` 已于 2026-08-25 合入官方 `main` 的 `62d2775c`。当前二开差异可用以下命令复核：
+`video-image` 已于 2026-10-04 合入官方 `main` 的 `7c889a96`。当前二开差异可用以下命令复核：
 
 ```powershell
 git diff --stat upstream/main...video-image
@@ -23,6 +23,22 @@ git log --reverse --oneline main..video-image
 ```
 
 三点语法会以当前已合入的官方基线为起点，只查看二开分支一侧仍然存在的最终差异。
+
+### 1.1 本次同步（2026-10-04，合入 `7c889a96`）冲突解决记录
+
+冲突文件与解决方式，后续同步遇到同类冲突可直接复用：
+
+| 文件 | 冲突性质 | 解决方式 |
+| --- | --- | --- |
+| `console/normalize.go` | 上游把 `normalizeConsoleTools` 改为返回 `(bool, error)` | 保留 `ensureMultiAgentDefaultTools` 调用，采纳上游新签名并处理错误 |
+| `console/console_test.go` | 两边各加测试 | 两边测试全部保留（我们的 2K 别名测试 + 上游 tool_choice 测试） |
+| `conversation/stream.go` | `streamConverter` 结构体字段分歧 | 取并集：保留 `serverToolProgress`，采纳上游 `reasoningEvidenceBytes`/`terminalEvent`/`outputItems`/`outputItemIDs` |
+| `conversation/stream.go` | 上游以 `reasoningEvidenceBytes` + 带参 `markReasoningEvidence(encrypted)` 取代我们的 `evidenceMarked` + 无参版本 | 采纳上游实现（`emitEncrypted` 内部已调用），删除失效的 `evidenceMarked` 字段与冗余调用 |
+| `inference/handler.go` | import 分歧 | 保留 `encoding/base64`（1262 行仍使用） |
+| `inference/handler_test.go` | import 分歧 | 并集：`context` + `encoding/base64` |
+| `README.md` | 模型表格重排 + 二开行 | 保留二开行（`-2k` 别名、Chat Completions 面、Console 禁用说明），采纳上游表格格式 |
+
+注意：`normalizeConsoleTools` 的签名与 `markReasoningEvidence` 的参数是上游演进方向，后续同步时不要再退回旧签名。
 
 ## 2. 二开功能总览
 
