@@ -260,6 +260,32 @@ Console 请求归一化阶段检查“实际上游模型名”是否包含独立
 
 另有一个**与本节无关的既有 flaky 用例**已一并修正：`TestWebAccountScriptsRejectConcurrentWorkForTheSameAccount` 原本给整个用例只留 3s，而它和同包数十个各自建真实 SQLite 库的用例并行执行，冷启动建库+初始化 schema 本身就可能超过 3s。在改动前的 `8dc42aea` 上实测 4 次失败 2 次（失败点固定为 `web_account_scripts_test.go:200: context deadline exceeded`）。该用例断言的是"同一账号的并发脚本必须被拒"，与延迟无关，因此把预算放宽到 30s，实测 4/4 通过。
 
+### 3.9 Grok Build 客户端版本落库后不会跟随上游默认值
+
+**现象**：升级到含 `9dda42ae`（`feat: align Grok Build 1.0.40 headers`）的版本后，**所有** Build 模型（`grok-4.5` / `grok-4.6` / `grok-4.7` / `grok-composer-2.5-fast`）都返回
+
+```text
+HTTP 426 Upgrade Required
+{"error":"Your Grok CLI version (0.2.119) is outdated. Please update to version 1.0.13 or later ..."}
+```
+
+**上游确实改了默认值，但改不到老部署**：`9dda42ae` 把 `RecommendedBuildClientVersion` 从 `0.2.119` 抬到 `1.0.40`，这个提交已经在我们的基线里。问题在于运行时设置一旦落库就**永久覆盖**代码默认值 —— 老部署的 `runtime_settings`（`key='gateway'`）里存着 `0.2.119` / `grok-shell/0.2.119 (linux; x86_64)`，于是新镜像仍然以 0.2.119 请求上游。上游为其它设置（`migrateBuildResponseHeaderTimeout`、`migrateProviderStreamIdleTimeouts`、`migrateClientKeyAccountScopes`）都写了迁移，唯独这个版本号没有，所以**每次上游抬高 CLI 版本都会静默打断 Build 模型**。
+
+版本演进记录：`0.2.99 → 0.2.106 → 0.2.110 → 0.2.111 → 0.2.119 → 1.0.4 → 1.0.40`。
+
+**处理**：
+1. 立即修复（运维动作，非代码）：通过 `PUT /api/admin/v1/settings` 把 `providerBuild.clientVersion` / `userAgent` 改成推荐值，**热生效，无需重启**（`restartRequired` 为空）。改完 4 个 Build 模型全部 `200`。
+2. 补齐迁移（本仓代码）：新增 `migrateBuildClientVersion`，与上游同类迁移同构（读 `runtime_settings` → 乐观锁 `revision` 匹配后 `UpdateColumn`）。判定必须**同时**满足两个条件才迁移，避免覆盖人工定制：
+   - `clientVersion` 出现在 `supersededBuildClientVersions`（历史默认值列表）中；
+   - `userAgent` 正好等于由该版本按当前默认模板派生出的 UA。
+   派生 UA 用 `strings.Replace` 从当前模板反推，不重复 UA 格式串；模板形态变化时条件不成立，结果是**跳过迁移而不是覆盖人工值**。
+
+**维护约定（重要）**：上游每次抬高 `RecommendedBuildClientVersion` 时，必须把**被替换掉的旧值**追加进 `supersededBuildClientVersions`。不要改成"版本号更小就升级"这类规则 —— 只有确实曾经是默认值的版本才允许被替换。
+
+回归测试：`TestMigrateBuildClientVersionUpgradesSupersededDefault`（0.2.119 → 当前推荐值）、`TestMigrateBuildClientVersionKeepsCustomPin`（自定义 UA、非历史默认值版本、已是推荐值、版本为空四种情况都必须原样保留）、`TestMigrateBuildClientVersionIsNoopWithoutSettingsRow`。
+
+主要文件：`infra/persistence/relational/schema.go`。
+
 ## 4. 文件级二开范围
 
 相对 `6e9eef76` 的业务二开（不含本文档自身）涉及 35 个既有或新增文件：

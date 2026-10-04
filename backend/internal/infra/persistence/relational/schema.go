@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
 	clientkeydomain "github.com/chenyme/grok2api/backend/internal/domain/clientkey"
 	"github.com/chenyme/grok2api/backend/internal/domain/media"
 	settingsdomain "github.com/chenyme/grok2api/backend/internal/domain/settings"
+	"github.com/chenyme/grok2api/backend/internal/infra/config"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -171,6 +173,9 @@ func (d *Database) initializeSchema(ctx context.Context) error {
 	}
 	if err := d.migrateBuildResponseHeaderTimeout(ctx); err != nil {
 		return fmt.Errorf("迁移 Grok Build 响应头超时: %w", err)
+	}
+	if err := d.migrateBuildClientVersion(ctx); err != nil {
+		return fmt.Errorf("迁移 Grok Build 客户端版本: %w", err)
 	}
 	if err := d.migrateProviderStreamIdleTimeouts(ctx); err != nil {
 		return fmt.Errorf("迁移 Provider 流式空闲超时: %w", err)
@@ -390,6 +395,78 @@ func (d *Database) migrateBuildResponseHeaderTimeout(ctx context.Context) error 
 			return nil
 		}
 		payload.Config.ProviderBuild.ResponseHeaderTimeout = settingsdomain.DefaultBuildResponseHeaderTimeout
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("encode runtime settings: %w", err)
+		}
+		result := db.Model(&runtimeSettingsModel{}).
+			Where("key = ? AND revision = ?", row.Key, row.Revision).
+			UpdateColumn("value_json", string(encoded))
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 1 {
+			return nil
+		}
+	}
+	return errors.New("runtime settings changed repeatedly during migration")
+}
+
+// supersededBuildClientVersions 记录历史上一度作为代码默认值发布过的 Grok Build 客户端版本。
+//
+// 运行时设置一旦落库就会永久覆盖代码默认值：上游把 RecommendedBuildClientVersion
+// 从 0.2.119 抬到 1.0.40（提交 9dda42ae）时只改了代码里的默认值，没有迁移库里的旧值，
+// 于是老部署依旧以 0.2.119 请求上游，**所有** Build 模型被 426 Upgrade Required 拒绝
+// ("Your Grok CLI version (0.2.119) is outdated")，而且不会自行恢复。
+//
+// 维护约定：上游每次抬高 RecommendedBuildClientVersion 时，把被替换掉的旧值追加进本列表。
+// 不要改成"版本号更小就升级"之类的规则：只有确实曾经是默认值的版本才允许被替换，
+// 人工固定的版本必须原样保留。
+var supersededBuildClientVersions = []string{
+	"0.2.99", "0.2.106", "0.2.110", "0.2.111", "0.2.119", "1.0.4",
+}
+
+// migrateBuildClientVersion 把"曾经是默认值、且没有被人工改过"的 Build 客户端版本
+// 迁移到当前推荐值。
+//
+// 两个条件必须同时成立才迁移，避免覆盖人工定制：
+//  1. clientVersion 出现在 supersededBuildClientVersions 中；
+//  2. userAgent 正好等于由该版本按当前默认模板派生出的 UA，
+//     说明这一对值来自默认值而非手改。
+func (d *Database) migrateBuildClientVersion(ctx context.Context) error {
+	recommendedVersion := strings.TrimSpace(config.RecommendedBuildClientVersion)
+	if recommendedVersion == "" {
+		return nil
+	}
+	recommendedUserAgent := strings.TrimSpace(config.RecommendedBuildUserAgent)
+	db := d.db.WithContext(ctx)
+	for range 4 {
+		var row runtimeSettingsModel
+		if err := db.Where("key = ?", runtimeSettingsKey).First(&row).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return err
+		}
+		var payload runtimeSettingsPayload
+		if err := json.Unmarshal([]byte(row.ValueJSON), &payload); err != nil {
+			return fmt.Errorf("decode runtime settings: %w", err)
+		}
+		current := strings.TrimSpace(payload.Config.ProviderBuild.ClientVersion)
+		if current == "" || current == recommendedVersion {
+			return nil
+		}
+		if !slices.Contains(supersededBuildClientVersions, current) {
+			return nil
+		}
+		// 用当前 UA 模板反推该版本对应的默认 UA，避免在这里重复 UA 的格式串。
+		// 模板形态变化时这里会不相等，结果是跳过迁移而不是覆盖人工值。
+		derivedUserAgent := strings.Replace(recommendedUserAgent, recommendedVersion, current, 1)
+		if strings.TrimSpace(payload.Config.ProviderBuild.UserAgent) != derivedUserAgent {
+			return nil
+		}
+		payload.Config.ProviderBuild.ClientVersion = recommendedVersion
+		payload.Config.ProviderBuild.UserAgent = recommendedUserAgent
 		encoded, err := json.Marshal(payload)
 		if err != nil {
 			return fmt.Errorf("encode runtime settings: %w", err)
