@@ -223,7 +223,7 @@ qualityGuard:
 func TestDefaultQualityGuardRequestRetryContract(t *testing.T) {
 	t.Parallel()
 	got := defaultConfig().QualityGuard.RequestRetry
-	if got.Enabled || got.MaxAttempts != 6 || got.HoldTimeout.Value() != 30*time.Second || got.MinOutputTokens != 8 || got.OnExhausted != "fail_closed" || got.AccountCooldown.Value() != 12*time.Hour || got.IdleAccountCooldown.Value() != 15*time.Minute {
+	if got.Enabled || got.MaxAttempts != 6 || got.HoldTimeout.Value() != 30*time.Second || got.MinOutputTokens != 8 || got.OnExhausted != "fail_closed" || got.AccountCooldown.Value() != 12*time.Hour || got.IdleAccountCooldown.Value() != 15*time.Minute || got.MinEncryptedBytes != 256 || got.EncryptedBytesPerReasoningToken != 4 {
 		t.Fatalf("requestRetry defaults = %#v", got)
 	}
 }
@@ -281,13 +281,13 @@ func TestBuildResponseHeaderTimeoutIsRuntimeOnly(t *testing.T) {
 
 func TestDefaultGrokBuildClientVersionMatchesLocalBaseline(t *testing.T) {
 	build := defaultConfig().Provider.Build
-	if RecommendedBuildClientVersion != "1.0.4" {
+	if RecommendedBuildClientVersion != "1.0.40" {
 		t.Fatalf("recommended clientVersion = %q", RecommendedBuildClientVersion)
 	}
 	if build.ClientVersion != RecommendedBuildClientVersion {
 		t.Fatalf("clientVersion = %q", build.ClientVersion)
 	}
-	if RecommendedBuildUserAgent != "grok-shell/1.0.4 (linux; x86_64)" {
+	if RecommendedBuildUserAgent != "grok-shell/1.0.40 (linux; x86_64)" {
 		t.Fatalf("recommended userAgent = %q", RecommendedBuildUserAgent)
 	}
 	if build.UserAgent != RecommendedBuildUserAgent {
