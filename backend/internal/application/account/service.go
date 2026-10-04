@@ -58,15 +58,19 @@ const (
 const (
 	// estimatedFreeTokenLimit is only a fallback until an upstream exhaustion
 	// response supplies the account-specific actual/limit pair.
-	estimatedFreeTokenLimit         int64         = 500_000
-	freeUsageWindow                 time.Duration = 24 * time.Hour
-	forcedRefreshMinInterval        time.Duration = 30 * time.Second
-	paidProbeRetryInterval          time.Duration = 15 * time.Minute
-	credentialRefreshAdvance        time.Duration = 3 * time.Minute
-	credentialRefreshSafetyPoll     time.Duration = time.Minute
-	credentialRefreshTimeout        time.Duration = 30 * time.Second
-	credentialRefreshStateTTL       time.Duration = 5 * time.Second
-	credentialStateWriteTimeout     time.Duration = 5 * time.Second
+	estimatedFreeTokenLimit     int64         = 500_000
+	freeUsageWindow             time.Duration = 24 * time.Hour
+	forcedRefreshMinInterval    time.Duration = 30 * time.Second
+	paidProbeRetryInterval      time.Duration = 15 * time.Minute
+	credentialRefreshAdvance    time.Duration = 3 * time.Minute
+	credentialRefreshSafetyPoll time.Duration = time.Minute
+	credentialRefreshTimeout    time.Duration = 30 * time.Second
+	credentialRefreshStateTTL   time.Duration = 5 * time.Second
+	// credentialStateWriteTimeout 必须明显大于 SQLite 的 busy_timeout(30s)。
+	// 这些写入都是 context.WithoutCancel 的后台落库，唯一目的就是可靠写进去；
+	// 一旦超时先于锁等待结束，被丢弃的可能是刚轮换出来的 refresh token，
+	// 直接把这个账号变成需要人工重新认证的"失效账号"。
+	credentialStateWriteTimeout     time.Duration = 45 * time.Second
 	credentialConfigurationRetry    time.Duration = 30 * time.Minute
 	credentialRefreshBatchSize                    = 100
 	credentialUnclassifiedAuthLimit               = 5

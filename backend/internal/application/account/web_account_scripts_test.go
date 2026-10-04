@@ -194,7 +194,13 @@ func TestRunWebAccountScriptsRejectsEmptyPlan(t *testing.T) {
 
 func TestWebAccountScriptsRejectConcurrentWorkForTheSameAccount(t *testing.T) {
 	t.Parallel()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	// 这个预算必须覆盖"并发建库 + 初始化 schema + 首次写入"的冷启动开销，而不是
+	// 被测逻辑的耗时：该用例与同包数十个各自建真实 SQLite 库的用例并行跑，机器被
+	// 打满时一次 schema 初始化就能超过 3s，于是稳定复现
+	// `web_account_scripts_test.go:200: context deadline exceeded` 的假失败
+	// （在改动前的 8dc42aea 上实测 4 次里失败 2 次）。被测语义是"同一账号的并发脚本
+	// 必须被拒"，与延迟无关，因此这里放宽预算不削弱断言强度。
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	service, repo, _ := newWebAccountSettingsTestService(t)
 	credential := createWebAccountForScriptTest(t, ctx, repo, "serialized")

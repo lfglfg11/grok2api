@@ -18,6 +18,10 @@ type AuditRepository interface {
 	SumTokensByAccountsSince(ctx context.Context, accountIDs []uint64, since time.Time) (map[uint64]int64, error)
 	SummarizeDegrade(ctx context.Context, query DegradeSummaryQuery) (DegradeSummaryResult, error)
 	PurgeOlderThan(ctx context.Context, cutoff time.Time) (int64, error)
+	// TrimFreePages 把清理审计后留下的空闲页真正归还给文件系统。
+	// 只在 SQLite 且已启用 incremental auto-vacuum 时生效，其他情况为空操作；
+	// 实现必须分批回收，不能退回全库 VACUUM（那会长时间独占写锁）。
+	TrimFreePages(ctx context.Context) error
 }
 
 type DegradeSummaryQuery struct {

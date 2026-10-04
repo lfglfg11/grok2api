@@ -598,11 +598,14 @@ func (a *Application) Run(ctx context.Context) error {
 	startBackground("audit_retention_cleanup", func(taskCtx context.Context) error {
 		a.runPeriodicTask(taskCtx, time.Hour, "audit_retention_cleanup", func(runCtx context.Context) error {
 			retentionDays := a.settings.Get().Config.Audit.RetentionDays
-			if retentionDays == 0 {
-				return nil
+			if retentionDays > 0 {
+				if _, err := a.audits.PurgeOutdated(runCtx, retentionDays); err != nil {
+					return err
+				}
 			}
-			_, err := a.audits.PurgeOutdated(runCtx, retentionDays)
-			return err
+			// 清理只把页挂回 freelist，必须再回收空闲页，否则 SQLite 文件只会单调增长。
+			// 保留期设为 0（关闭清理）时同样要回收，因此这一步不在上面的分支里。
+			return a.audits.TrimFreePages(runCtx)
 		})
 		return nil
 	})

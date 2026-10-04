@@ -14,9 +14,12 @@ import (
 )
 
 const (
-	webMinimumAge               = 20
-	webMaximumAge               = 40
-	webAccountStateWriteTimeout = 5 * time.Second
+	webMinimumAge = 20
+	webMaximumAge = 40
+	// webAccountStateWriteTimeout 与 credentialStateWriteTimeout 同理：这些是
+	// 后台状态落库，必须明显大于 SQLite 的 busy_timeout(30s)，否则会在启动期
+	// 的写锁竞争中把已确认的上游状态丢掉。
+	webAccountStateWriteTimeout = 45 * time.Second
 )
 
 // AcceptWebTerms 接受指定 Grok Web SSO 账号的上游服务协议。

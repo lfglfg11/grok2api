@@ -487,6 +487,12 @@ func (s *Service) PurgeOutdated(ctx context.Context, retentionDays int) (int64, 
 	return s.audits.PurgeOlderThan(ctx, cutoff)
 }
 
+// TrimFreePages 回收清理审计后遗留的数据库空闲页。
+// 仅 SQLite 且启用 incremental auto-vacuum 时有效，其他方言为空操作。
+func (s *Service) TrimFreePages(ctx context.Context) error {
+	return s.audits.TrimFreePages(ctx)
+}
+
 // CursorResult 表示按递减 ID 游标读取的一页审计记录。
 type CursorResult struct {
 	Items      []auditdomain.Record

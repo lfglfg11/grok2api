@@ -239,6 +239,27 @@ Console 请求归一化阶段检查“实际上游模型名”是否包含独立
 
 主要冲突热点：`conversation/chat_server_tools.go`、`conversation/stream.go`、`conversation/conversation_test.go`。
 
+### 3.8 SQLite 审计库的空间回收与写锁竞争
+
+这一节不是上游功能，而是 `video-image` 针对线上 SQLite 部署的运维加固，涉及三处必须成对理解的改动，后续同步上游时**不要单独回退其中任何一处**。
+
+**故障现象**：生产 `data/backend.db` 涨到 677MB，其中 `freelist_count` 占 88852 页（约 364MB）——即超过一半是死页；同时启动后约 45 秒内密集出现
+`account_reauth_required_write_failed` / `credential_refresh_token_write_failed`，错误为 `database is locked (5) (SQLITE_BUSY)` 与 `context deadline exceeded`。
+
+**根因一：SQLite 的 DELETE 不会缩小文件。** 审计保留期（`Audit.RetentionDays`，默认 7 天）每小时清理一次，但 `auto_vacuum=0` 时清理只把页挂回 freelist，文件只会单调增长。
+`_pragma=auto_vacuum(2)` 必须排在 `journal_mode(WAL)` **之前**：`journal_mode=WAL` 会先写库头，库头一旦落地，`auto_vacuum` 就只能靠 `VACUUM` 生效，DSN 里的设置对新库也会静默失效（已用 `PRAGMA auto_vacuum` 读回值验证：顺序放后面时为 0，放前面时为 2）。
+对已存在的库该 pragma 无害但也不生效，需要一次性 `PRAGMA auto_vacuum=INCREMENTAL; VACUUM;` 转换；转换后由每小时的清理任务在 `PurgeOutdated` 之后调用 `TrimFreePages`（内部为分批 `PRAGMA incremental_vacuum`）真正把空间还给文件系统。**不要退回全库 `VACUUM`**：那会长时间独占写锁。
+
+**根因二：写超时与锁等待互相抢跑。** DSN 的 `busy_timeout` 原本是 5s，而 `credentialStateWriteTimeout` / `webAccountStateWriteTimeout` 也恰好是 5s，两者等值互相竞争。启动阶段凭据刷新、配额回补、失效标记会同时发起大量后台写入，SQLite 的写锁被长时间占住，超时的落库被直接丢弃——丢掉的可能是刚轮换出来的 refresh token，账号因此被标成需要人工重新认证。现在 `busy_timeout=30000`、两个写超时统一为 45s，保证后台写入等待锁而不是丢弃。
+
+**验收方式**：启动后统计 `docker logs grok2api | grep -c SQLITE_BUSY`，稳态应持续为 0；`PRAGMA freelist_count` 应在每小时清理后回到 0，库文件不再单调增长。
+
+主要冲突热点：`infra/persistence/relational/database.go`、`infra/persistence/relational/audit_repository.go`、`repository/audit.go`、`app/application.go`、`application/account/service.go`、`application/account/web_account_settings.go`。
+
+回归测试：`TestAuditRepositoryTrimFreePagesReclaimsFile`（清理 → 回收 → 断言 `freelist_count=0` 且文件缩小）、`TestAuditRepositoryTrimFreePagesSkipsNonIncremental`（未启用增量回收、非 SQLite 方言时为空操作）。
+
+另有一个**与本节无关的既有 flaky 用例**已一并修正：`TestWebAccountScriptsRejectConcurrentWorkForTheSameAccount` 原本给整个用例只留 3s，而它和同包数十个各自建真实 SQLite 库的用例并行执行，冷启动建库+初始化 schema 本身就可能超过 3s。在改动前的 `8dc42aea` 上实测 4 次失败 2 次（失败点固定为 `web_account_scripts_test.go:200: context deadline exceeded`）。该用例断言的是"同一账号的并发脚本必须被拒"，与延迟无关，因此把预算放宽到 30s，实测 4/4 通过。
+
 ## 4. 文件级二开范围
 
 相对 `6e9eef76` 的业务二开（不含本文档自身）涉及 35 个既有或新增文件：

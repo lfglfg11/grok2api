@@ -42,11 +42,21 @@ func (d *Database) Dialect() string {
 
 // OpenSQLite 打开纯 Go SQLite 数据库并启用 WAL、外键与 busy timeout。
 // 显式事务使用 IMMEDIATE，避免并发读后写事务在锁升级时直接返回 SQLITE_BUSY。
+//
+// 两点顺序与取值上的约束（改动前务必确认，否则会静默失效）：
+//  1. auto_vacuum 必须排在 journal_mode 之前。journal_mode=WAL 会写入库头，
+//     一旦库头落地，auto_vacuum 就只能靠 VACUUM 生效——DSN 里的设置对新建库也会
+//     变成空操作。对已存在的库该 pragma 无害但也无效，需要一次性 VACUUM 转换；
+//     启用后由周期任务调用 PRAGMA incremental_vacuum 把空闲页真正还给文件系统。
+//  2. busy_timeout 必须显著大于业务写入上下文的超时。启动阶段大量后台写入
+//     （凭据刷新、配额回补、失效标记）会长时间占住 SQLite 唯一的写锁；
+//     原先 5s 与 credentialStateWriteTimeout 的 5s 相等，两者互相抢跑，
+//     结果是刷新令牌轮换后的落库被丢弃，账号被迫重新认证。
 func OpenSQLite(ctx context.Context, path string) (*Database, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("创建数据库目录: %w", err)
 	}
-	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_txlock=immediate", path)
+	dsn := fmt.Sprintf("file:%s?_pragma=auto_vacuum(2)&_pragma=busy_timeout(30000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_txlock=immediate", path)
 	db, err := gorm.Open(glebarezsqlite.Open(dsn), gormConfig())
 	if err != nil {
 		return nil, fmt.Errorf("打开 SQLite: %w", err)

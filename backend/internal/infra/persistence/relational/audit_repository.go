@@ -1087,6 +1087,54 @@ func applyAuditQuery(query *gorm.DB, search string, start, end time.Time, filter
 	return query
 }
 
+// trimFreePageBatchSize 是单次 incremental_vacuum 回收的页数。
+// 回收是写操作且会独占写锁，因此必须小批量推进，避免长时间阻塞业务写入。
+const trimFreePageBatchSize = 1000
+
+// trimFreePageBatchLimit 限制单轮最多回收多少批，避免首次转换后长时间空转。
+const trimFreePageBatchLimit = 512
+
+// TrimFreePages 把空闲页归还给文件系统。
+//
+// 背景：SQLite 的 DELETE 只把页挂到 freelist，不会缩小文件；auto_vacuum=0 时
+// 文件只会单调增长（生产环境曾出现 677MB 的库里有 364MB 全是死页）。开启
+// incremental auto-vacuum（auto_vacuum=2）后，必须显式调用本方法才会真正回收。
+//
+// 非 SQLite 方言、未启用 incremental auto-vacuum 或本来就没有空闲页时直接返回，
+// 因此对 PostgreSQL 部署与其他 SQLite 部署都是安全的空操作。
+func (r *AuditRepository) TrimFreePages(ctx context.Context) error {
+	if r == nil || r.db == nil || r.db.Dialect() != "sqlite" {
+		return nil
+	}
+	session := r.db.db.WithContext(ctx)
+	var mode int
+	if err := session.Raw("PRAGMA auto_vacuum").Scan(&mode).Error; err != nil {
+		return fmt.Errorf("读取 auto_vacuum: %w", err)
+	}
+	// 0=未启用, 1=FULL, 2=INCREMENTAL。只有 INCREMENTAL 能分批回收。
+	if mode != 2 {
+		return nil
+	}
+	for batch := 0; batch < trimFreePageBatchLimit; batch++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var free int
+		if err := session.Raw("PRAGMA freelist_count").Scan(&free).Error; err != nil {
+			return fmt.Errorf("读取 freelist_count: %w", err)
+		}
+		if free <= 0 {
+			return nil
+		}
+		// PRAGMA 不能在事务内执行，Exec 走自动提交即可。
+		if err := session.Exec(fmt.Sprintf("PRAGMA incremental_vacuum(%d)", trimFreePageBatchSize)).Error; err != nil {
+			return fmt.Errorf("回收空闲页: %w", err)
+		}
+	}
+	return nil
+}
+
+// PurgeOlderThan 按保留期分批清理审计记录及其关联的请求尝试。
 func (r *AuditRepository) PurgeOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
 	var totalDeleted int64
 	for {
