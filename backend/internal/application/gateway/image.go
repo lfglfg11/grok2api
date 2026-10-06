@@ -302,15 +302,34 @@ func (s *Service) executeImage(
 				lease.Release()
 				continue
 			}
-			if !provider.IsMediaPostProcessingError(err) {
+			// A transient Imagine failure (upstream dropped the WebSocket, or the
+			// job settled with every image moderated) belongs to the upstream
+			// attempt, not to this credential. The provider already retried it, so
+			// cooling the account down here would only burn healthy capacity.
+			if !provider.IsMediaPostProcessingError(err) && !provider.IsImagineTransientError(err) {
 				s.selector.MarkFailure(ctx, credential, 0, 0)
 			}
 			lease.Release()
 			errorCode := "upstream_unavailable"
-			if provider.IsMediaPostProcessingError(err) {
+			switch {
+			case provider.IsMediaPostProcessingError(err):
 				errorCode = "media_postprocessing_failed"
+			case provider.IsImagineModeratedError(err):
+				errorCode = "content_moderated"
 			}
 			writeFailureAudit(http.StatusBadGateway, errorCode, &credential)
+			if provider.IsImagineModeratedError(err) {
+				// Surface the real reason instead of a generic 502 so clients can
+				// tell a content denial apart from a broken gateway.
+				return nil, &UpstreamFailure{
+					HTTPStatus:    http.StatusBadGateway,
+					Code:          "content_moderated",
+					PublicMessage: "上游内容审核拦截了本次生成，请调整提示词后重试",
+					AccountID:     credential.ID,
+					AccountName:   credential.Name,
+					Cause:         err,
+				}
+			}
 			return nil, err
 		}
 		if response.StatusCode == http.StatusUnauthorized && credential.AuthType == accountdomain.AuthTypeSSO {

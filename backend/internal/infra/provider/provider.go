@@ -239,6 +239,65 @@ func IsMediaPostProcessingError(err error) bool {
 	return errors.As(err, &target)
 }
 
+// ImagineTransientKind classifies an Imagine WebSocket failure that a fresh
+// generation attempt can plausibly clear.
+type ImagineTransientKind string
+
+const (
+	// ImagineTransientDropped means upstream closed the Imagine WebSocket before
+	// it delivered a usable image.
+	ImagineTransientDropped ImagineTransientKind = "dropped"
+	// ImagineTransientModerated means upstream settled the Imagine job while
+	// flagging every produced image as moderated, so no usable image existed.
+	ImagineTransientModerated ImagineTransientKind = "moderated"
+)
+
+// ImagineTransientError indicates that an Imagine media attempt failed for a
+// reason that belongs to the upstream attempt rather than to the selected
+// account: the socket was dropped mid-generation, or every image the job
+// produced was moderated. Both are per-attempt conditions, so a fresh
+// generation is worth trying and the credential must not be penalised.
+type ImagineTransientError struct {
+	Kind  ImagineTransientKind
+	Cause error
+}
+
+func (e *ImagineTransientError) Error() string {
+	if e == nil || e.Cause == nil {
+		return "imagine attempt failed"
+	}
+	return e.Cause.Error()
+}
+
+func (e *ImagineTransientError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+// NewImagineTransientError marks an Imagine attempt failure as retryable.
+func NewImagineTransientError(kind ImagineTransientKind, cause error) error {
+	if cause == nil {
+		return nil
+	}
+	return &ImagineTransientError{Kind: kind, Cause: cause}
+}
+
+// IsImagineTransientError reports whether the Imagine attempt may be retried.
+func IsImagineTransientError(err error) bool {
+	var target *ImagineTransientError
+	return errors.As(err, &target)
+}
+
+// IsImagineModeratedError reports whether every image produced by the Imagine
+// job was flagged as moderated by upstream. That is a request-level denial: it
+// deserves its own client-facing code and must not cool down the account.
+func IsImagineModeratedError(err error) bool {
+	var target *ImagineTransientError
+	return errors.As(err, &target) && target.Kind == ImagineTransientModerated
+}
+
 // CredentialRefreshError distinguishes permanent OAuth errors requiring reauthorization from temporary errors that can retry with backoff.
 type CredentialRefreshError struct {
 	Status  int

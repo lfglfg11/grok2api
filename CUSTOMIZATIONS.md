@@ -286,6 +286,28 @@ HTTP 426 Upgrade Required
 
 主要文件：`infra/persistence/relational/schema.go`。
 
+### 3.10 Web Imagine 生成失败被笼统报成 502：区分瞬时故障并自动重试
+
+**现象**：`grok-imagine-image-2.0`（Web 通道 Imagine）稳定有约 14% 的请求返回 `502 {"code":"upstream_unavailable","message":"上游服务暂不可用"}`。7 天实测 214×200 / 35×502，按天 16% / 14%，非常稳定；客户端完全无法区分"上游内容审核拦了这次生成"和"网关真的坏了"。
+
+**真因**：35 次失败在日志里只有一条 `image_upstream_failed`，error 全部是 `Imagine WebSocket 完成但没有可用图片`。按 `imagineCollector` 的语义，`Done(expected)==true` 且 `Images()` 为空**只能**发生在"所有已 `completed` 的槽位都带 `moderated: true`"时 —— 也就是上游把这次生成的每一张图都判成了内容拦截（既有单测 `TestImagineCollectorSettlesModeratedSlots` 正是这条语义）。另有一类约 5% 的失败是上游直接掐断 WebSocket（`websocket: close 1006 (abnormal closure)` / `connection reset by peer`）。
+
+两者都是**单次尝试级**的上游故障，与账号、出口节点、网络都无关：良性提示词连测 82 次，仅 4 次首试失败，**重试 4/4 全部成功**；且失败请求耗时（均值 15.3s）与成功请求完全一致，说明上游是把活干完才拒绝的，不是连不上。同时失败账号会被打上 5s 冷却与 `last_error=upstream status 0`，而它们本身是健康的。
+
+**处理**：
+1. `infra/provider/provider.go` 新增 `ImagineTransientError`（`Kind` = `dropped` / `moderated`）与 `NewImagineTransientError` / `IsImagineTransientError` / `IsImagineModeratedError`，与既有 `MediaPostProcessingError` 同构。
+2. `infra/provider/web/image.go`：连接失败、写帧失败、读帧失败标记为 `dropped`；`完成但没有可用图片` 标记为 `moderated`。`generateWSImage` 的重试上限从固定 2 次改为 `imagineGenerationAttempts = 3`，并把 `ImagineTransientError` 与原有的 Clearance 重试一并覆盖。每次重试都会重新申请 lease，因此会拿到新的浏览器会话 Cookie，这正是被掐断后需要的。流式路径（`streamImagineImages`）不在此列：响应头已经发出，适配器层无法重试。
+3. `application/gateway/image.go`：`IsImagineTransientError` 时**不再调用 `selector.MarkFailure`**（此前会无谓冷却健康账号）；`moderated` 分支写审计码 `content_moderated`，并返回 `*UpstreamFailure{Code: "content_moderated", HTTPStatus: 502}`，客户端拿到的是
+   `502 {"code":"content_moderated","message":"上游内容审核拦截了本次生成，请调整提示词后重试"}`。
+
+HTTP 状态刻意保持 502 不变，只换错误码与文案，避免影响既有客户端的重试策略。
+
+回归测试（`infra/provider/web/imagine_retry_test.go`）：`TestGenerateWSImageRetriesAfterDroppedSocket`、`TestGenerateWSImageRetriesAfterModeratedCompletion`、`TestGenerateWSImageReportsModeratedAfterRetriesExhausted`、`TestGenerateWSImageReportsDroppedSocketAfterRetriesExhausted`、`TestImagineTransientClassifiersIgnoreOtherErrors`。
+
+主要文件：`infra/provider/provider.go`、`infra/provider/web/image.go`、`application/gateway/image.go`。
+
+**残余不确定性**：良性提示词 75 次都没能复现 `moderated` 分支，因此它大概率与提示词内容相关。重试能救回"每次生成随机命中拦截"的情况；但如果某个提示词是**确定性**被拦，重试只是把 3 次尝试都花掉、最终仍返回 `content_moderated`，此时应改提示词而不是继续重试。
+
 ## 4. 文件级二开范围
 
 相对 `6e9eef76` 的业务二开（不含本文档自身）涉及 35 个既有或新增文件：

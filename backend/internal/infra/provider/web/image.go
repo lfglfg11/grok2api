@@ -727,22 +727,38 @@ func liteImageMarkdown(item map[string]any) string {
 	return ""
 }
 
+// imagineGenerationAttempts bounds how many times a single Imagine request may
+// re-open the upstream WebSocket. Upstream drops the socket mid-generation
+// (close 1006 / connection reset), or settles a job while flagging every image
+// as moderated, on a small but steady fraction of attempts. Both are
+// per-attempt conditions that a fresh generation usually clears, and neither
+// says anything about the selected account.
+const imagineGenerationAttempts = 3
+
 func (a *Adapter) generateWSImage(ctx context.Context, request provider.ImageGenerationRequest, count int, format, ratio string, modelConfig imagineModelConfig) (*provider.Response, error) {
-	for attempt := 0; attempt < 2; attempt++ {
+	var lastErr error
+	for attempt := 0; attempt < imagineGenerationAttempts; attempt++ {
+		last := attempt == imagineGenerationAttempts-1
 		response, err := a.generateWSImageAttempt(ctx, request, count, format, ratio, modelConfig)
 		if err == nil {
 			return response, nil
 		}
+		lastErr = err
 		var upstreamErr *webMediaUpstreamError
-		if !errors.As(err, &upstreamErr) || !isClearanceRefreshableMediaError(upstreamErr) || attempt > 0 {
-			if errors.As(err, &upstreamErr) {
-				return upstreamErr.providerResponse(), nil
+		if errors.As(err, &upstreamErr) {
+			if isClearanceRefreshableMediaError(upstreamErr) && !last {
+				a.log().Warn("web_image_clearance_retry", "operation", "imagine", "attempt", attempt+1, "status", upstreamErr.status, "body_kind", upstreamErr.bodyKind)
+				continue
 			}
-			return nil, err
+			return upstreamErr.providerResponse(), nil
 		}
-		a.log().Warn("web_image_clearance_retry", "operation", "imagine", "status", upstreamErr.status, "body_kind", upstreamErr.bodyKind)
+		if provider.IsImagineTransientError(err) && !last {
+			a.log().Warn("web_image_transient_retry", "operation", "imagine", "attempt", attempt+1, "error", err)
+			continue
+		}
+		return nil, err
 	}
-	return nil, fmt.Errorf("Imagine WebSocket Clearance 重试耗尽")
+	return nil, lastErr
 }
 
 func (a *Adapter) generateWSImageAttempt(ctx context.Context, request provider.ImageGenerationRequest, count int, format, ratio string, modelConfig imagineModelConfig) (*provider.Response, error) {
@@ -799,7 +815,7 @@ func (a *Adapter) generateWSImageAttempt(ctx context.Context, request provider.I
 			return nil, upstreamErr
 		}
 		a.egress.Feedback(context.WithoutCancel(ctx), lease.NodeID, 0, err)
-		return nil, fmt.Errorf("连接 Imagine WebSocket: %w", err)
+		return nil, provider.NewImagineTransientError(provider.ImagineTransientDropped, fmt.Errorf("连接 Imagine WebSocket: %w", err))
 	}
 	connectionOwned := true
 	defer func() {
@@ -813,11 +829,11 @@ func (a *Adapter) generateWSImageAttempt(ctx context.Context, request provider.I
 	_ = connection.SetWriteDeadline(deadline)
 	if err := connection.WriteJSON(imagineResetMessage()); err != nil {
 		a.egress.Feedback(context.WithoutCancel(ctx), lease.NodeID, 0, err)
-		return nil, err
+		return nil, provider.NewImagineTransientError(provider.ImagineTransientDropped, fmt.Errorf("重置 Imagine WebSocket: %w", err))
 	}
 	if err := connection.WriteJSON(imagineRequestMessage(newWebID("img"), request.Prompt, ratio, request.Resolution, cfg.AllowNSFW, modelConfig.Pro, modelConfig.ExpectedCount)); err != nil {
 		a.egress.Feedback(context.WithoutCancel(ctx), lease.NodeID, 0, err)
-		return nil, err
+		return nil, provider.NewImagineTransientError(provider.ImagineTransientDropped, fmt.Errorf("发送 Imagine WebSocket 请求: %w", err))
 	}
 	if request.Streaming {
 		reader, writer := io.Pipe()
@@ -833,7 +849,7 @@ func (a *Adapter) generateWSImageAttempt(ctx context.Context, request provider.I
 		messageType, data, readErr := connection.ReadMessage()
 		if readErr != nil {
 			a.egress.Feedback(context.WithoutCancel(ctx), lease.NodeID, 0, readErr)
-			return nil, fmt.Errorf("读取 Imagine WebSocket: %w", readErr)
+			return nil, provider.NewImagineTransientError(provider.ImagineTransientDropped, fmt.Errorf("读取 Imagine WebSocket: %w", readErr))
 		}
 		if messageType != websocket.TextMessage {
 			continue
@@ -852,7 +868,11 @@ func (a *Adapter) generateWSImageAttempt(ctx context.Context, request provider.I
 	a.egress.Feedback(context.WithoutCancel(ctx), lease.NodeID, http.StatusOK, nil)
 	images := collector.Images()
 	if len(images) == 0 {
-		return nil, fmt.Errorf("Imagine WebSocket 完成但没有可用图片")
+		// The collector only settles with zero usable images when every slot the
+		// job completed carried moderated=true, i.e. upstream rejected all of the
+		// images it produced. That is a per-attempt condition, not an account or
+		// network fault, so let the caller retry a fresh generation.
+		return nil, provider.NewImagineTransientError(provider.ImagineTransientModerated, errors.New("Imagine WebSocket 完成但没有可用图片"))
 	}
 	if len(images) < count {
 		return jsonProviderResponse(http.StatusBadGateway, map[string]any{"error": map[string]any{
