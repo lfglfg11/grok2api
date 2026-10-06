@@ -446,6 +446,8 @@ RikkaHub 手工验证请求：
 | `4694f486` | 修正图片编辑 Statsig 回归：保留抓包中的 post/conversation Referer，但创建和结果读取都固定使用实际加载的 `/imagine` SPA 文档 meta，避免站点根页或虚拟 post 路由触发 `403 code=7` |
 | `b49637b2` | 合并 `main`（`7c889a96`）到 `video-image`（非二开功能；冲突解决见 1.1） |
 | `48488acc` | SQLite 审计库分批回收空闲页、消除启动期写锁竞争导致的凭据落库丢失（详见 3.8） |
+| `ef7b3872` | Build 客户端版本落库后自动迁移到当前推荐值（详见 3.9） |
+| `abe5a11d` | Web Imagine 瞬时故障自动重试、不再冷却健康账号，并把内容审核拦截报为 `content_moderated`（详见 3.10） |
 | 待本次提交 | 允许账号 Cookie 保存真实 `grok_device_id`；托管 Clearance 模式把该设备身份合并到服务器刷新出的 CF Cookie，并在媒体请求中优先复用，旧账号保持派生回退 |
 | 待本次提交 | 补齐网页图生图的 conversation responses 最终结果读取，优先使用会话成品并记录上游返回的模型标签，避免误取创建流中的旧模型/旁路候选图 |
 | 待本次提交 | 按网页响应结构解析顶层 `responses[]`，只选择最后一条 Imagine Assistant 的 `generatedImageUrls`，排除 map 遍历顺序导致的输入图、预览图和旁路图误选 |
