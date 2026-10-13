@@ -332,11 +332,16 @@ HTTP 状态刻意保持 502 不变，只换错误码与文案，避免影响既�
 2. `reference_images` 仍显式拒绝：它对应前端的 `referenceToVideo`，需要 omni 实验与多资产上传，尚未实现，不能静默退化成文生视频。
 3. `application/gateway/video.go`：Web 路由不再因 `hasImage` 被剔除，图生视频因此命中 Web（优先级高于 Console）；`hasReferences` 仍然拒绝。
 
-**实测结论**（2026-10-13，revision `38652060`）：
-- 良性首帧（本服务生成的苹果图 / 蓝杯子图）→ 产物 **frame 0 与输入首帧逐像素一致**，两例均复现；上游 SSE 回显 `mediaGenInput.imageToVideo` 且 `resolvedImageReferences` 已解析到该资产。
-- **画幅跟随首帧**：输入 768×1152、请求 `aspect_ratio: 16:9`，产物仍是 768×1168（竖版）。即 i2v 下 `aspectRatio` 被上游忽略。
-- **`resolution` 决定配额产品**：`720p` 走 `video_720p`（免费号有额度，可用）；`480p` 落到 `video` 模式（免费号没有该窗口），直接 503 `upstream_quota_exhausted`。
-- 用**真实照片**（picsum 随机图，其中一张含人物）作首帧时，上游会把资产替换掉、产出与首帧无关的画面。这不是协议问题，是上传内容被审核替换，排查时不要误判成"图生视频没打通"。
+**实测结论**（2026-10-13，revision `38652060` / `4a451dfb`）：
+- **协议本身是通的**：良性首帧（本服务生成的苹果图 / 蓝杯子图）命中时，产物 **frame 0 与输入首帧逐像素一致**（ffmpeg 抽帧比对，两例存证）；上游 SSE 回显 `mediaGenInput.imageToVideo` 且 `resolvedImageReferences` 已解析到该资产。
+- **但上游对这些免费号极不稳定**：当天 11 次图生视频里只有 2 次真的用了首帧，其余 9 次上游返回了**与输入无关的成品演示片**（同一批猫 / 农贸市场 / 湖 / 灯塔，多次请求字节级相同），而 HTTP 仍是 `200`、任务仍是 `completed`，网关无从判别。
+- **与账号无关**：成功用的 1009 / 1010 与失败用的 1013–1015 在 `tier`(basic) / `auth_status` / `failure_count` / 配额窗口上完全一致。
+- **与提示词无关**：同一张苹果图 + 同一提示词 `slow gentle push in`，18:05 那次正确、19:02 与 19:07 两次被替换。因此这是上游侧的不确定性，不是载荷问题。
+- **画幅可作判别信号**：命中时产物画幅跟随首帧（输入 768×1152 → 产物 768×1168），被替换时跟随请求的 `aspect_ratio`（→ 1280×720）。若两者本就相同则无法区分。
+- **`resolution` 决定配额产品**：`720p` 走 `video_720p`（免费号有额度）；`480p` 落到 `video` 模式（免费号没有该窗口），直接 503 `upstream_quota_exhausted`。
+- 排查时的坑：用**真实照片**（picsum 随机图）作首帧时产出与输入无关，一度被误判成"图生视频没打通"；实际是上游把资产替换成了演示片，与协议无关。
+
+**未决问题**：上游为什么只在少数请求里真正使用首帧，尚未定位（不是账号、不是提示词、不是载荷形状）。若要让客户端不拿到"看起来成功、其实不相干"的视频，需要在网关侧按上面的画幅信号做一次校验后再决定是否返回。
 
 主要文件：`infra/provider/web/video.go`、`infra/provider/web/video_image_test.go`、`application/gateway/video.go`、`application/gateway/video_test.go`。
 
