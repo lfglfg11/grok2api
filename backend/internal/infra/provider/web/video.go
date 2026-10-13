@@ -298,19 +298,6 @@ func (a *Adapter) GenerateVideo(ctx context.Context, request provider.VideoReque
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(err), 0, err)
 	}
-	if debug := mediaDebug(); debug.LogStream {
-		encoded, _ := json.Marshal(payload)
-		a.log().Info("media_debug_video_request", "variant", debug.Variant, "payload", string(encoded))
-		capture := &boundedCapture{limit: 8 << 20}
-		response.Body = io.NopCloser(io.TeeReader(response.Body, capture))
-		defer func() {
-			body := string(capture.Bytes())
-			a.log().Info("media_debug_video_stream", "variant", debug.Variant, "body", body)
-			if thumbnail := a.debugFetchThumbnail(ctx, cfg, request.Credential, debugThumbnailURL(body)); thumbnail != "" {
-				a.log().Info("media_debug_video_thumbnail", "variant", debug.Variant, "jpeg_base64", thumbnail)
-			}
-		}()
-	}
 	result, _, parseErr := parseVideoStream(response, request.Progress)
 	_ = response.Body.Close()
 	if parseErr != nil {
@@ -352,9 +339,7 @@ func (a *Adapter) imageToVideoPayload(ctx context.Context, cfg Config, lease *eg
 		"account_id", credential.ID,
 		"file_source", uploaded.FileSource,
 		"metadata_present", uploaded.MetadataID != "",
-		"metadata_id", uploaded.MetadataID,
-		"asset_id", uploaded.ID,
-		"uri", uploaded.URI,
+		"uri_present", uploaded.URI != "",
 		"mime_type", image.MIMEType,
 		"input_bytes", len(image.Data),
 	)
@@ -638,7 +623,7 @@ func imageToVideoPayload(prompt, ratio, resolution string, seconds int, assetID 
 }
 
 func videoCreateEnvelope(prompt string, mediaGenInput map[string]any) map[string]any {
-	envelope := map[string]any{
+	return map[string]any{
 		"modelName":            "imagine-video-gen",
 		"message":              strings.TrimSpace(prompt + " --mode=custom"),
 		"enableImageStreaming": true,
@@ -652,47 +637,5 @@ func videoCreateEnvelope(prompt string, mediaGenInput map[string]any) map[string
 		},
 		"mediaGenInput": mediaGenInput,
 		"kind":          "CONVERSATION_KIND_IMAGINE",
-	}
-	applyMediaDebugVariant(envelope)
-	return envelope
-}
-
-// applyMediaDebugVariant 只在 media-debug.json 存在时改写负载，用于对比上游
-// 对 imageToVideo 各变体的接受度；生产环境该文件不存在，因此不产生任何改动。
-func applyMediaDebugVariant(envelope map[string]any) {
-	debug := mediaDebug()
-	if debug.Variant == "" {
-		return
-	}
-	mediaGenInput, _ := envelope["mediaGenInput"].(map[string]any)
-	imageToVideo, _ := mediaGenInput["imageToVideo"].(map[string]any)
-	switch debug.Variant {
-	case "no-kind":
-		delete(envelope, "kind")
-		delete(envelope, "enableImageStreaming")
-	case "use-first-frame":
-		if imageToVideo != nil {
-			imageToVideo["useFirstFrame"] = true
-		}
-	case "mode-i2v":
-		if imageToVideo != nil {
-			imageToVideo["mode"] = "i2v"
-		}
-	case "reference-first-frame":
-		if imageToVideo != nil {
-			assets, _ := imageToVideo["inputAssets"].([]string)
-			reference := map[string]any{}
-			for key, value := range imageToVideo {
-				if key != "inputAssets" {
-					reference[key] = value
-				}
-			}
-			reference["inputAssets"] = assets
-			if len(assets) > 0 {
-				reference["firstFrameAsset"] = assets[0]
-			}
-			mediaGenInput["referenceToVideo"] = reference
-			delete(mediaGenInput, "imageToVideo")
-		}
 	}
 }
