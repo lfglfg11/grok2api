@@ -308,6 +308,40 @@ HTTP 状态刻意保持 502 不变，只换错误码与文案，避免影响既�
 
 **残余不确定性**：良性提示词 75 次都没能复现 `moderated` 分支，因此它大概率与提示词内容相关。重试能救回"每次生成随机命中拦截"的情况；但如果某个提示词是**确定性**被拦，重试只是把 3 次尝试都花掉、最终仍返回 `content_moderated`，此时应改提示词而不是继续重试。
 
+### 3.11 Web 通道单张首帧图生视频（`mediaGenInput.imageToVideo`）
+
+**现象**：`grok-imagine-video` 的图生视频（`image` 首帧）在所有通道上都不可用。Web 适配器直接硬拒（`Grok Web 当前仅支持文本生视频`），网关 `validateVideoRouteParameters` 也在选路阶段把带图请求的 Web 路由剔除，于是请求必然落到 Console —— 而 Console 的 media 额度为 0，最终 429/503。
+
+**上游协议**：从 grok.com 前端 `buildImageToVideoInput` 还原。单张首帧走 `mediaGenInput.imageToVideo`，会话外壳与文生视频完全一致：
+
+```json
+{"modelName":"imagine-video-gen","message":"<prompt> --mode=custom",
+ "mediaGenInput":{"imageToVideo":{"prompt":"…","inputAssets":["<fileMetadataId>"],
+   "aspectRatio":"16:9","duration":6,"resolutionName":"720p"}},
+ "enableImageStreaming":true,"enableSideBySide":true,"sendFinalMetadata":true,
+ "responseMetadata":{"experiments":[],"modelConfigOverride":{"modelMap":{}}},
+ "kind":"CONVERSATION_KIND_IMAGINE"}
+```
+
+`inputAssets` 的元素就是 Imagine 自上传拿到的 `fileMetadata.fileMetadataId`（与图生图 `imageToImage.inputAssets` 同一取值，实测形如 `07bed79b-176e-41cb-bd77-ef287ca01871`）。
+
+**字段取舍是实测出来的，不能凭直觉改**：逐一探测上游对变体的接受度，只有上面这一种形状返回 200，其余全部 400 —— 加 `useFirstFrame: true`、加 `mode: "i2v"`、改用 `referenceToVideo`+`firstFrameAsset`、去掉 `kind`/`enableImageStreaming` 都会被拒。因此不要"补全"这些可选字段。
+
+**处理**：
+1. `infra/provider/web/video.go`：`GenerateVideo` 不再一律拒绝图片输入；首帧经 `loadChatImage` + `uploadFileV2Direct(IMAGINE_SELF_UPLOAD_FILE_SOURCE)` 换成 `fileMetadataId` 后构造 `imageToVideo` 负载。抽出 `videoCreateEnvelope` 供文本/图片两种变体共用。
+2. `reference_images` 仍显式拒绝：它对应前端的 `referenceToVideo`，需要 omni 实验与多资产上传，尚未实现，不能静默退化成文生视频。
+3. `application/gateway/video.go`：Web 路由不再因 `hasImage` 被剔除，图生视频因此命中 Web（优先级高于 Console）；`hasReferences` 仍然拒绝。
+
+**实测结论**（2026-10-13，revision `38652060`）：
+- 良性首帧（本服务生成的苹果图 / 蓝杯子图）→ 产物 **frame 0 与输入首帧逐像素一致**，两例均复现；上游 SSE 回显 `mediaGenInput.imageToVideo` 且 `resolvedImageReferences` 已解析到该资产。
+- **画幅跟随首帧**：输入 768×1152、请求 `aspect_ratio: 16:9`，产物仍是 768×1168（竖版）。即 i2v 下 `aspectRatio` 被上游忽略。
+- **`resolution` 决定配额产品**：`720p` 走 `video_720p`（免费号有额度，可用）；`480p` 落到 `video` 模式（免费号没有该窗口），直接 503 `upstream_quota_exhausted`。
+- 用**真实照片**（picsum 随机图，其中一张含人物）作首帧时，上游会把资产替换掉、产出与首帧无关的画面。这不是协议问题，是上传内容被审核替换，排查时不要误判成"图生视频没打通"。
+
+主要文件：`infra/provider/web/video.go`、`infra/provider/web/video_image_test.go`、`application/gateway/video.go`、`application/gateway/video_test.go`。
+
+回归测试（`infra/provider/web/video_image_test.go`）：`TestImageToVideoPayloadMatchesCapturedMediaGenInputShape`、`TestImageToVideoPayloadDropsEmptyPrompt`、`TestGenerateVideoImageToVideoUploadsFirstFrame`、`TestGenerateVideoReferenceImagesStillRejected`。
+
 ## 4. 文件级二开范围
 
 相对 `6e9eef76` 的业务二开（不含本文档自身）涉及 35 个既有或新增文件：
@@ -448,6 +482,9 @@ RikkaHub 手工验证请求：
 | `48488acc` | SQLite 审计库分批回收空闲页、消除启动期写锁竞争导致的凭据落库丢失（详见 3.8） |
 | `ef7b3872` | Build 客户端版本落库后自动迁移到当前推荐值（详见 3.9） |
 | `abe5a11d` | Web Imagine 瞬时故障自动重试、不再冷却健康账号，并把内容审核拦截报为 `content_moderated`（详见 3.10） |
+| `3cbfdbb6` | Web 通道单张首帧图生视频：按前端 `buildImageToVideoInput` 实现 `mediaGenInput.imageToVideo`，Web 路由不再因 `hasImage` 被剔除（详见 3.11） |
+| `6a074fd8`、`38652060` | 临时诊断提交：对比 `imageToVideo` 负载变体、抓取上游 SSE 与结果预览图，用于确认字段取舍与首帧是否真的生效；诊断完成后已在 `14bf5101` 移除 |
+| `14bf5101` | 移除图生视频诊断开关，只保留最终实现（详见 3.11） |
 | 待本次提交 | 允许账号 Cookie 保存真实 `grok_device_id`；托管 Clearance 模式把该设备身份合并到服务器刷新出的 CF Cookie，并在媒体请求中优先复用，旧账号保持派生回退 |
 | 待本次提交 | 补齐网页图生图的 conversation responses 最终结果读取，优先使用会话成品并记录上游返回的模型标签，避免误取创建流中的旧模型/旁路候选图 |
 | 待本次提交 | 按网页响应结构解析顶层 `responses[]`，只选择最后一条 Imagine Assistant 的 `generatedImageUrls`，排除 map 遍历顺序导致的输入图、预览图和旁路图误选 |
