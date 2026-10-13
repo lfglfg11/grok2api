@@ -304,7 +304,11 @@ func (a *Adapter) GenerateVideo(ctx context.Context, request provider.VideoReque
 		capture := &boundedCapture{limit: 8 << 20}
 		response.Body = io.NopCloser(io.TeeReader(response.Body, capture))
 		defer func() {
-			a.log().Info("media_debug_video_stream", "variant", debug.Variant, "body", string(capture.Bytes()))
+			body := string(capture.Bytes())
+			a.log().Info("media_debug_video_stream", "variant", debug.Variant, "body", body)
+			if thumbnail := a.debugFetchThumbnail(ctx, cfg, request.Credential, debugThumbnailURL(body)); thumbnail != "" {
+				a.log().Info("media_debug_video_thumbnail", "variant", debug.Variant, "jpeg_base64", thumbnail)
+			}
 		}()
 	}
 	result, _, parseErr := parseVideoStream(response, request.Progress)
