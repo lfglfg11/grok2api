@@ -17,6 +17,7 @@ import (
 	"github.com/chenyme/grok2api/backend/internal/domain/account"
 	domainegress "github.com/chenyme/grok2api/backend/internal/domain/egress"
 	settingsdomain "github.com/chenyme/grok2api/backend/internal/domain/settings"
+	"github.com/chenyme/grok2api/backend/internal/infra/egress"
 	"github.com/chenyme/grok2api/backend/internal/infra/provider"
 )
 
@@ -258,8 +259,12 @@ func boundWebMediaDiagnostic(value string, limit int) string {
 }
 
 func (a *Adapter) GenerateVideo(ctx context.Context, request provider.VideoRequest) (provider.VideoResult, error) {
-	if strings.TrimSpace(request.ImageURL) != "" || len(request.ReferenceURLs) > 0 {
-		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, fmt.Errorf("Grok Web 当前仅支持文本生视频；图片视频请使用 Build 或 Console Provider"))
+	imageURL := strings.TrimSpace(request.ImageURL)
+	// reference_images maps to the Imagine SPA's referenceToVideo variant, which
+	// also requires the omni model experiment. Only the single first-frame
+	// imageToVideo variant is implemented here.
+	if len(request.ReferenceURLs) > 0 {
+		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, fmt.Errorf("Grok Web 不支持参考图生视频；请只提供单张 image 首帧，或改用 Build/Console Provider"))
 	}
 	cfg := a.config()
 	token, err := a.cipher.Decrypt(request.Credential.EncryptedAccessToken)
@@ -282,6 +287,13 @@ func (a *Adapter) GenerateVideo(ctx context.Context, request provider.VideoReque
 		resolution = "720p"
 	}
 	payload := videoCreatePayload(request.Prompt, ratio, resolution, segments[0])
+	if imageURL != "" {
+		imagePayload, imageErr := a.imageToVideoPayload(ctx, cfg, lease, token, request.Credential, imageURL, request.Prompt, ratio, resolution, segments[0])
+		if imageErr != nil {
+			return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePrepare, 0, imageErr)
+		}
+		payload = imagePayload
+	}
 	response, err := a.postJSON(ctx, cfg, lease, token, cfg.BaseURL+"/rest/app-chat/conversations/new", payload, time.Duration(cfg.VideoTimeoutSeconds)*time.Second)
 	if err != nil {
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoCreateFailureStage(err), 0, err)
@@ -302,6 +314,36 @@ func (a *Adapter) GenerateVideo(ctx context.Context, request provider.VideoReque
 		return provider.VideoResult{}, provider.WrapVideoStage(provider.VideoStagePoll, 0, fmt.Errorf("视频生成完成但没有返回内容 URL"))
 	}
 	return result, nil
+}
+
+// imageToVideoPayload loads the caller's first frame, uploads it through the
+// same Imagine self-upload endpoint the image-edit flow uses, and builds the
+// imageToVideo payload from the resulting fileMetadataId.
+func (a *Adapter) imageToVideoPayload(ctx context.Context, cfg Config, lease *egress.Lease, token string, credential account.Credential, imageURL, prompt, ratio, resolution string, seconds int) (map[string]any, error) {
+	image, err := a.loadChatImage(ctx, lease, imageURL, cfg.MaxInputImageBytes)
+	if err != nil {
+		return nil, fmt.Errorf("读取图生视频首帧: %w", err)
+	}
+	userID, err := a.resolveImageEditUserID(ctx, cfg.BaseURL, credential, token, lease)
+	if err != nil {
+		return nil, fmt.Errorf("解析 Grok Web 图生视频用户身份: %w", err)
+	}
+	uploaded, err := a.uploadFileV2Direct(ctx, cfg, lease, token, image, cfg.BaseURL+"/imagine", imagineSelfUploadSource, userID, "video_image_upload")
+	if err != nil {
+		return nil, err
+	}
+	if uploaded.MetadataID == "" {
+		return nil, fmt.Errorf("上传首帧成功但上游未返回 fileMetadataId")
+	}
+	a.log().Info("web_video_image_upload_resolved",
+		"account_id", credential.ID,
+		"file_source", uploaded.FileSource,
+		"metadata_present", uploaded.MetadataID != "",
+		"uri_present", uploaded.URI != "",
+		"mime_type", image.MIMEType,
+		"input_bytes", len(image.Data),
+	)
+	return imageToVideoPayload(prompt, ratio, resolution, seconds, uploaded.MetadataID), nil
 }
 
 // DownloadVideo retrieves a completed Grok asset through its source SSO
@@ -551,9 +593,39 @@ func applyFreeWebVideoDurationCap(seconds, cap int, credential account.Credentia
 // than the legacy modelConfigOverride map. Keeping this shape explicit also
 // prevents text-to-video from depending on a synthetic media post.
 func videoCreatePayload(prompt, ratio, resolution string, seconds int) map[string]any {
+	textToVideo := map[string]any{
+		"prompt":         prompt,
+		"aspectRatio":    ratio,
+		"duration":       seconds,
+		"resolutionName": resolution,
+	}
+	return videoCreateEnvelope(prompt, map[string]any{"textToVideo": textToVideo})
+}
+
+// imageToVideoPayload mirrors the Imagine SPA's buildImageToVideoInput: a single
+// uploaded first-frame asset is referenced through mediaGenInput.imageToVideo
+// while the conversation envelope stays byte-identical to text-to-video. The
+// SPA omits fields the caller did not supply, so an empty prompt is dropped
+// rather than sent as "".
+func imageToVideoPayload(prompt, ratio, resolution string, seconds int, assetID string) map[string]any {
+	imageToVideo := map[string]any{
+		"inputAssets":    []string{assetID},
+		"duration":       seconds,
+		"resolutionName": resolution,
+	}
+	if strings.TrimSpace(prompt) != "" {
+		imageToVideo["prompt"] = prompt
+	}
+	if strings.TrimSpace(ratio) != "" {
+		imageToVideo["aspectRatio"] = ratio
+	}
+	return videoCreateEnvelope(prompt, map[string]any{"imageToVideo": imageToVideo})
+}
+
+func videoCreateEnvelope(prompt string, mediaGenInput map[string]any) map[string]any {
 	return map[string]any{
 		"modelName":            "imagine-video-gen",
-		"message":              prompt + " --mode=custom",
+		"message":              strings.TrimSpace(prompt + " --mode=custom"),
 		"enableImageStreaming": true,
 		"enableSideBySide":     true,
 		"sendFinalMetadata":    true,
@@ -563,14 +635,7 @@ func videoCreatePayload(prompt, ratio, resolution string, seconds int) map[strin
 				"modelMap": map[string]any{},
 			},
 		},
-		"mediaGenInput": map[string]any{
-			"textToVideo": map[string]any{
-				"prompt":         prompt,
-				"aspectRatio":    ratio,
-				"duration":       seconds,
-				"resolutionName": resolution,
-			},
-		},
-		"kind": "CONVERSATION_KIND_IMAGINE",
+		"mediaGenInput": mediaGenInput,
+		"kind":          "CONVERSATION_KIND_IMAGINE",
 	}
 }
